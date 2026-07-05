@@ -51,6 +51,8 @@
   .data-meta { font-size: 11px; color: var(--text-muted); text-align: right; line-height: 1.45; }
   .data-meta b { color: var(--ink); font-weight: 700; }
   .build-badge { color: var(--text-muted); opacity: .45; cursor: help; font-size: 15px; }
+  #refreshBtn.spinning { display:inline-block; animation: spin .7s linear infinite; }
+  #refreshBtn:hover { border-color: var(--brand); color: var(--brand); }
   .build-badge:hover { opacity: .9; }
   .header-right { display: flex; align-items: center; gap: 12px; font-size: 13px; }
   .refresh-info { color: var(--text-muted); }
@@ -318,7 +320,7 @@
   <h1><span class="brand-dot"></span>Strictly Savvy<span class="header-sub">Team Dashboard</span></h1>
   <div class="header-right">
     <div class="data-meta" id="dataMeta"></div>
-    <span class="build-badge" title="build 2026-06-26·m">&#9432;</span>
+    <span class="build-badge" title="build 2026-06-26·o">&#9432;</span>
     <span class="refresh-info" id="refreshInfo"></span>
     <button class="btn btn-secondary btn-sm" onclick="logout()" id="logoutBtn" style="display:none">
       Sign out
@@ -371,7 +373,14 @@
       </select>
     </div>
     <div style="margin-left:auto; display:flex; gap:12px; align-items:center;">
-      <a id="adminLink" href="#" target="_blank" rel="noopener" title="Enter approved additional hours" style="display:none; font-size:13px; font-weight:700; color:var(--brand); text-decoration:none; border:1px solid var(--brand); border-radius:8px; padding:5px 11px;">⚙ Admin</a>
+      <button type="button" id="refreshBtn" onclick="forceRefresh()" title="Refresh data now" style="font-size:14px; font-weight:700; color:var(--text-muted); background:#fff; border:1px solid var(--border); border-radius:8px; padding:6px 10px; cursor:pointer; line-height:1;">↻</button>
+      <div id="adminMenu" style="display:none; position:relative;">
+        <button type="button" onclick="toggleAdminMenu(event)" style="font-size:13px; font-weight:700; color:var(--brand); background:#fff; border:1px solid var(--brand); border-radius:8px; padding:6px 11px; cursor:pointer;">⚙ Admin ▾</button>
+        <div id="adminMenuDrop" style="display:none; position:absolute; right:0; top:calc(100% + 6px); background:#fff; border:1px solid var(--border); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.14); min-width:180px; overflow:hidden; z-index:60;">
+          <a id="admLinkHours" href="#" target="_blank" rel="noopener" style="display:block; padding:10px 14px; font-size:13px; font-weight:600; color:var(--text); text-decoration:none;">📋 Additional Hours</a>
+          <a id="admLinkUsers" href="#" target="_blank" rel="noopener" style="display:block; padding:10px 14px; font-size:13px; font-weight:600; color:var(--text); text-decoration:none; border-top:1px solid var(--border);">👥 User Access</a>
+        </div>
+      </div>
       <div id="currentUserBadge" style="font-size:13px; color:var(--text-muted);"></div>
     </div>
   </div>
@@ -394,7 +403,7 @@
     <p>Enter your PIN to view commission and bonus data.</p>
     <div id="pinError" class="modal-error hidden"></div>
     <input type="password" id="pinInput" maxlength="8" placeholder="PIN"
-           onkeydown="if(event.key==='Enter') submitPin()">
+           onkeydown="if(event.key==='Enter'||event.keyCode===13){event.preventDefault();submitPin();}">
     <button class="btn btn-primary" style="width:100%" onclick="submitPin()">Unlock</button>
     <button class="btn btn-secondary" style="width:100%; margin-top:8px" onclick="closePin()">Cancel</button>
   </div>
@@ -430,6 +439,7 @@ let state = {
   clientList:      null,
   tuChartInstances: [],    // Team Utilisation chart instances (destroyed on re-render)
   idToken:         '',     // Google Sign-In ID token (sent with every API request)
+  lastRefresh:     '',     // the "Last data refresh" stamp currently on screen (staleness check)
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -506,6 +516,7 @@ async function init() {
 function renderDataMeta(meta) {
   const el = document.getElementById('dataMeta');
   if (!el || !meta) return;
+  state.lastRefresh = meta.last_refresh || '';
   const parts = [];
   if (meta.last_refresh)      parts.push(`<div><b>Last data refresh:</b> ${esc(meta.last_refresh)}</div>`);
   if (meta.latest_time_entry) parts.push(`<div><b>Latest time entry:</b> ${esc(meta.latest_time_entry)}</div>`);
@@ -582,11 +593,14 @@ function buildTabs() {
   const isGlobal   = role.includes('global') || team.includes('global') || team.includes('automation');
   const isManager  = role.includes('manager');
 
-  // ⚙ Admin link (Additional Hours page) — leadership/admin only.
-  const adminLink = document.getElementById('adminLink');
-  if (adminLink) {
-    if (isAdmin) { adminLink.href = API_BASE + '?page=admin'; adminLink.style.display = 'inline-flex'; }
-    else adminLink.style.display = 'none';
+  // ⚙ Admin menu (Additional Hours + User Access) — leadership/admin only.
+  const adminMenu = document.getElementById('adminMenu');
+  if (adminMenu) {
+    if (isAdmin) {
+      document.getElementById('admLinkHours').href = API_BASE + '?page=admin';
+      document.getElementById('admLinkUsers').href = API_BASE + '?page=users';
+      adminMenu.style.display = 'block';
+    } else adminMenu.style.display = 'none';
   }
 
   const tabs = [];
@@ -2093,6 +2107,85 @@ function logout() {
   document.getElementById('logoutBtn').style.display = 'none';
   document.getElementById('userSelect').value = '';
   document.getElementById('goBtn').disabled = true;
+}
+
+// ⚙ Admin dropdown menu
+function toggleAdminMenu(e) {
+  if (e) e.stopPropagation();
+  const d = document.getElementById('adminMenuDrop');
+  if (d) d.style.display = (d.style.display === 'block') ? 'none' : 'block';
+}
+document.addEventListener('click', function () {
+  const d = document.getElementById('adminMenuDrop');
+  if (d) d.style.display = 'none';
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// Data freshness: re-pull the header stamp + current view. The server only
+// updates once/day (early-morning refresh), so a dashboard left open overnight
+// would otherwise show yesterday's numbers until a manual reload. We (a) offer a
+// manual ↻ button and (b) auto-check whenever the tab regains focus.
+// ───────────────────────────────────────────────────────────────────────────
+async function forceRefresh(opts) {
+  opts = opts || {};
+  const btn = document.getElementById('refreshBtn');
+  if (btn) { btn.disabled = true; btn.classList.add('spinning'); }
+  try {
+    // Re-fetch the header meta (last refresh / latest entry).
+    let meta;
+    try { meta = await api('getDataMeta'); } catch (e) { return; } // api() shows the gate on auth failure
+    if (meta && !meta.error) renderDataMeta(meta);
+    // Drop cached tab data so the active tab re-pulls from the server.
+    state.projectHealth = null;
+    state.teamUtil = null;
+    state.clientBreakdown = null;
+    state.commissionData = null;   // re-pulled via stored PIN if the tab needs it
+    state.clientList = null;
+    if (state.currentUser) await refreshData();
+    if (!opts.silent) flashToast('Refreshed');
+  } finally {
+    if (btn) { btn.disabled = false; btn.classList.remove('spinning'); }
+  }
+}
+
+let lastFreshCheck = 0;
+async function checkFreshness() {
+  if (!state.currentUser) return;                 // still on the landing/sign-in screen
+  const now = new Date().getTime();
+  if (now - lastFreshCheck < 30000) return;       // don't hammer it — at most once / 30s
+  lastFreshCheck = now;
+  let meta;
+  try { meta = await api('getDataMeta'); } catch (e) { return; }
+  if (!meta || meta.error) return;
+  if (meta.last_refresh && meta.last_refresh !== state.lastRefresh) {
+    // The overnight refresh has landed since this screen last loaded — pull it in.
+    await forceRefresh({ silent: true });
+    flashToast('Data updated');
+  }
+}
+document.addEventListener('visibilitychange', function () {
+  if (document.visibilityState === 'visible') checkFreshness();
+});
+window.addEventListener('focus', checkFreshness);
+
+function flashToast(msg) {
+  let el = document.getElementById('freshToast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'freshToast';
+    el.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%) translateY(-14px);' +
+      'background:#18A558;color:#fff;font-weight:800;font-size:14px;padding:10px 20px;border-radius:12px;' +
+      'box-shadow:0 6px 20px rgba(0,0,0,.18);z-index:9999;opacity:0;transition:opacity .25s,transform .25s;pointer-events:none;';
+    document.body.appendChild(el);
+  }
+  el.textContent = '✓ ' + msg;
+  el.style.opacity = '1';
+  el.style.transform = 'translateX(-50%) translateY(0)';
+  clearTimeout(el._t);
+  el._t = setTimeout(function () {
+    el.style.opacity = '0';
+    el.style.transform = 'translateX(-50%) translateY(-14px)';
+  }, 2600);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
