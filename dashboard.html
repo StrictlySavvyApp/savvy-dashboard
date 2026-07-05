@@ -1,0 +1,2128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Strictly Savvy — Team Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Mulish:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* ── Reset & Base ─────────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    /* Strictly Savvy brand (extracted from strictlysavvy.co.nz) */
+    --brand:        #EB1F57;   /* raspberry pink — primary */
+    --brand-light:  #F2547D;
+    --brand-dark:   #CD0139;   /* deep crimson — hover/emphasis */
+    --ink:          #2E2E2E;   /* charcoal text/headings */
+    --slate:        #404F4F;   /* secondary dark */
+    --sage:         #6B8483;   /* muted teal accent */
+    --accent:       #EB1F57;
+    --danger:       #CD0139;
+    --warning:      #E8853A;
+    --success:      #2E9E6B;
+    --text:         #2E2E2E;
+    --text-muted:   #6B7280;
+    --bg:           #F7F7F9;
+    --surface:      #FFFFFF;
+    --border:       #E8E8EC;
+    --radius:       12px;
+    --shadow:       0 1px 3px rgba(16,16,24,.06), 0 4px 16px rgba(16,16,24,.05);
+    /* chart palette (for the other tabs) */
+    --c-pink:#EB1F57; --c-peach:#F6A57A; --c-teal:#6B8483; --c-purple:#8B6CB3;
+    --c-orange:#E8853A; --c-pink-light:#F7B7C9; --c-grey:#C9CDD2;
+  }
+  body { font-family: 'Mulish', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         background: var(--bg); color: var(--text); min-height: 100vh;
+         -webkit-font-smoothing: antialiased; }
+
+  /* ── Layout ───────────────────────────────────────────────────────── */
+  .header { background: var(--surface); color: var(--ink); padding: 0 24px;
+            display: flex; align-items: center; justify-content: space-between;
+            height: 62px; position: sticky; top: 0; z-index: 100;
+            border-bottom: 1px solid var(--border); }
+  .header h1 { font-size: 18px; font-weight: 800; letter-spacing: -.4px;
+               display: flex; align-items: center; }
+  .brand-dot { width: 11px; height: 11px; border-radius: 50%; background: var(--brand);
+               display: inline-block; margin-right: 9px; box-shadow: 0 0 0 3px rgba(235,31,87,.15); }
+  .header-sub { color: var(--text-muted); font-weight: 500; font-size: 14px; margin-left: 8px; }
+  .data-meta { font-size: 11px; color: var(--text-muted); text-align: right; line-height: 1.45; }
+  .data-meta b { color: var(--ink); font-weight: 700; }
+  .build-badge { color: var(--text-muted); opacity: .45; cursor: help; font-size: 15px; }
+  .build-badge:hover { opacity: .9; }
+  .header-right { display: flex; align-items: center; gap: 12px; font-size: 13px; }
+  .refresh-info { color: var(--text-muted); }
+  .main { max-width: 1400px; margin: 0 auto; padding: 24px; }
+
+  /* ── Landing screen ───────────────────────────────────────────────── */
+  #landing { display: flex; align-items: center; justify-content: center;
+             min-height: calc(100vh - 60px); }
+  .landing-card { background: var(--surface); border-radius: 16px;
+                  box-shadow: var(--shadow); padding: 48px; width: 400px;
+                  text-align: center; }
+  .landing-card .logo { font-size: 48px; margin-bottom: 16px; }
+  .landing-card h2 { font-size: 24px; color: var(--brand); margin-bottom: 8px; }
+  .landing-card p  { color: var(--text-muted); margin-bottom: 28px; font-size: 14px; }
+
+  /* ── Controls / Filters ───────────────────────────────────────────── */
+  .controls { background: var(--surface); border-radius: var(--radius);
+              padding: 16px 20px; margin-bottom: 20px; display: flex;
+              gap: 16px; align-items: center; flex-wrap: wrap;
+              box-shadow: var(--shadow); }
+  .controls label { font-size: 12px; color: var(--text-muted); font-weight: 500;
+                    margin-bottom: 4px; display: block; }
+  .ctrl-group { display: flex; flex-direction: column; min-width: 160px; }
+
+  /* ── Forms ────────────────────────────────────────────────────────── */
+  select, input[type="text"], input[type="password"] {
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px;
+    font-size: 14px; color: var(--text); background: var(--bg);
+    outline: none; transition: border-color .15s; width: 100%; }
+  select:focus, input:focus { border-color: var(--brand); }
+
+  /* ── Buttons ──────────────────────────────────────────────────────── */
+  .btn { border: none; border-radius: 8px; padding: 10px 20px; font-size: 14px;
+         font-weight: 500; cursor: pointer; transition: opacity .15s; }
+  .btn-primary   { background: var(--brand); color: #fff; }
+  .btn-secondary { background: var(--border); color: var(--text); }
+  .btn-danger    { background: var(--danger); color: #fff; }
+  .btn:hover     { opacity: .85; }
+  .btn-sm        { padding: 6px 14px; font-size: 13px; }
+
+  /* ── Tabs ─────────────────────────────────────────────────────────── */
+  .tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 2px solid var(--border);
+          padding-bottom: 0; }
+  .tab { padding: 10px 18px; font-size: 14px; font-weight: 500; cursor: pointer;
+         color: var(--text-muted); border-radius: 8px 8px 0 0; border: none;
+         background: none; border-bottom: 2px solid transparent;
+         margin-bottom: -2px; transition: all .15s; }
+  .tab.active { color: var(--brand); border-bottom-color: var(--brand);
+                background: var(--surface); }
+  .tab:hover:not(.active) { color: var(--brand-light); background: rgba(45,74,107,.05); }
+
+  /* ── Cards ────────────────────────────────────────────────────────── */
+  .card { background: var(--surface); border-radius: var(--radius);
+          box-shadow: var(--shadow); padding: 20px; margin-bottom: 16px; }
+  .card-title { font-size: 15px; font-weight: 600; color: var(--brand);
+                margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+
+  /* ── KPI tiles ────────────────────────────────────────────────────── */
+  .kpi-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+  .kpi { background: var(--surface); border-radius: var(--radius);
+         box-shadow: var(--shadow); padding: 16px 20px; flex: 1; min-width: 150px; }
+  .kpi-label { font-size: 12px; color: var(--text-muted); font-weight: 500;
+               text-transform: uppercase; letter-spacing: .5px;
+               min-height: 2.8em; display: flex; align-items: flex-start; }
+  .kpi-value { font-size: 28px; font-weight: 700; color: var(--brand);
+               margin: 4px 0 2px; line-height: 1; }
+  .kpi-sub   { font-size: 12px; color: var(--text-muted); min-height: 2.6em; line-height: 1.3; }
+  .kpi.danger .kpi-value { color: var(--danger); }
+  .kpi.warning .kpi-value { color: var(--warning); }
+  .kpi.success .kpi-value { color: var(--success); }
+
+  /* ── Table ────────────────────────────────────────────────────────── */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 10px 12px; font-size: 11px; font-weight: 600;
+       color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px;
+       border-bottom: 2px solid var(--border); white-space: nowrap; }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(45,74,107,.03); }
+  th.num, td.num { text-align: right; }
+
+  /* ── Progress bar ─────────────────────────────────────────────────── */
+  .prog-wrap { display: flex; align-items: center; gap: 8px; min-width: 120px; }
+  .prog-bar  { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .prog-fill { height: 100%; border-radius: 3px; transition: width .3s; }
+  .prog-fill.ok      { background: var(--success); }
+  .prog-fill.warn    { background: var(--warning); }
+  .prog-fill.over    { background: var(--danger); }
+  .prog-pct  { font-size: 12px; font-weight: 600; min-width: 36px; text-align: right; }
+
+  /* ── Badges ───────────────────────────────────────────────────────── */
+  .badge { display: inline-flex; align-items: center; padding: 2px 8px;
+           border-radius: 12px; font-size: 11px; font-weight: 600; }
+  .badge-over    { background: #FEE2E2; color: #991B1B; }
+  .badge-warning { background: #FEF3C7; color: #92400E; }
+  .badge-ok      { background: #D1FAE5; color: #065F46; }
+  .badge-flexi   { background: #E0E7FF; color: #3730A3; }
+  .badge-none    { background: var(--border); color: var(--text-muted); }
+
+  /* ── Accordion (client breakdown) ────────────────────────────────── */
+  .accordion-header { display: flex; align-items: center; justify-content: space-between;
+                      padding: 12px 16px; cursor: pointer; border-radius: 8px;
+                      transition: background .15s; user-select: none; }
+  .accordion-header:hover { background: rgba(45,74,107,.05); }
+  .accordion-header .chevron { transition: transform .2s; }
+  .accordion-header.open .chevron { transform: rotate(180deg); }
+  .accordion-body { display: none; padding: 0 8px 8px; }
+  .accordion-body.open { display: block; }
+
+  /* ── Chart containers ─────────────────────────────────────────────── */
+  .chart-wrap { position: relative; height: 280px; }
+  .chart-wrap-tall { position: relative; height: 420px; }
+
+  /* ── PIN modal ────────────────────────────────────────────────────── */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.4);
+                   display: flex; align-items: center; justify-content: center;
+                   z-index: 200; }
+  .modal { background: var(--surface); border-radius: 16px; padding: 32px;
+           width: 320px; text-align: center; box-shadow: 0 8px 32px rgba(0,0,0,.2); }
+  .modal h3 { margin-bottom: 8px; color: var(--brand); }
+  .modal p  { font-size: 13px; color: var(--text-muted); margin-bottom: 20px; }
+  .modal input { margin-bottom: 12px; text-align: center; font-size: 20px;
+                 letter-spacing: 8px; }
+  .modal-error { color: var(--danger); font-size: 13px; margin-bottom: 8px; }
+
+  /* ── Empty / loading states ───────────────────────────────────────── */
+  .loading { text-align: center; padding: 48px; color: var(--text-muted); }
+  .loading-spinner { display: inline-block; width: 32px; height: 32px;
+                     border: 3px solid var(--border); border-top-color: var(--brand);
+                     border-radius: 50%; animation: spin .7s linear infinite;
+                     margin-bottom: 12px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .empty { text-align: center; padding: 32px; color: var(--text-muted); font-size: 14px; }
+
+  /* ── Responsive ───────────────────────────────────────────────────── */
+  @media (max-width: 768px) {
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    .kpi-row { gap: 8px; }
+    .kpi { min-width: calc(50% - 8px); }
+    .controls { gap: 10px; }
+    .ctrl-group { min-width: 130px; }
+  }
+
+  .hidden { display: none !important; }
+  .text-muted { color: var(--text-muted); }
+  .text-sm { font-size: 12px; }
+  .mt-4 { margin-top: 4px; }
+  .font-mono { font-variant-numeric: tabular-nums; }
+
+  /* ── Project Health redesign ──────────────────────────────────────── */
+  .ph-section { padding: 0; overflow: hidden; }
+  .ph-section-head { display: flex; align-items: center; gap: 12px;
+                     padding: 16px 20px; border-bottom: 1px solid var(--border); }
+  .ph-title { font-size: 15px; font-weight: 800; color: var(--ink); letter-spacing: -.2px; }
+  .ph-tag { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 999px;
+            text-transform: uppercase; letter-spacing: .3px; }
+  .tag-monthly    { background: rgba(107,132,131,.16); color: #3F5453; }
+  .tag-cumulative { background: rgba(235,31,87,.10);  color: var(--brand-dark); }
+  .tag-ceiling    { background: #FEE2E2; color: #991B1B; }
+  .ph-meta { margin-left: auto; font-size: 12px; color: var(--text-muted); }
+  .ph-meta b.over-text { color: var(--danger); }
+
+  .ph-table th, .ph-table td { padding: 9px 10px; white-space: nowrap; }
+  .ph-table td.ph-proj { white-space: normal; min-width: 210px; font-weight: 600; color: var(--ink); }
+  .ph-table tr:hover td { background: rgba(235,31,87,.03); }
+  .client-row td { background: var(--bg); border-bottom: 1px solid var(--border); padding: 8px 12px; }
+  .client-row:hover td { background: var(--bg); }
+  .client-name { font-weight: 800; color: var(--brand-dark); font-size: 13px; }
+  .client-sub  { color: var(--text-muted); font-size: 12px; margin-left: 8px; font-weight: 600; }
+  .mini-tag { display: inline-block; margin-left: 6px; font-size: 10px; font-weight: 700;
+              color: var(--brand-dark); background: rgba(235,31,87,.10);
+              padding: 1px 6px; border-radius: 6px; vertical-align: middle; text-transform: uppercase; }
+  .ph-table td.nonbill { color: var(--warning); }
+  .ph-ceiling .ph-section-head { background: linear-gradient(0deg, transparent, rgba(205,1,57,.05)); }
+
+  /* KPI accents on brand */
+  .kpi-value { color: var(--ink); }
+  .kpi.brand .kpi-value { color: var(--brand); }
+
+  /* Project Health: toolbar, collapsible client rows, internal column */
+  .ph-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 14px;
+                font-size: 13px; color: var(--text-muted); }
+  .ph-toolbar-label { font-weight: 700; }
+  .ph-sort { border: 1px solid var(--border); background: var(--surface); color: var(--text-muted);
+             padding: 5px 13px; border-radius: 999px; font-size: 12px; font-weight: 700; cursor: pointer;
+             font-family: inherit; transition: all .12s; }
+  .ph-sort:hover { border-color: var(--brand); color: var(--brand); }
+  .ph-sort.active { background: var(--brand); color: #fff; border-color: var(--brand); }
+  .ph-hint { margin-left: auto; font-style: italic; }
+  .client-row { cursor: pointer; }
+  .client-row .arrow { display: inline-block; color: var(--brand); font-weight: 800;
+                       transition: transform .15s; margin-right: 2px; }
+  .client-row.open .arrow { transform: rotate(90deg); }
+  .proj-hidden { display: none; }
+  .proj-row td.ph-proj { padding-left: 30px; font-weight: 500; }
+  .ph-start { display: block; font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .note-ico { cursor: help; font-size: 12px; margin-left: 3px; vertical-align: middle; opacity: .8; }
+  .note-ico:hover { opacity: 1; }
+  .ph-table td.col-internal { color: var(--sage); }
+  .badge-internal { background: rgba(107,132,131,.18); color: #3F5453; }
+  .mini-internal { color: var(--sage) !important; background: rgba(107,132,131,.15) !important; }
+  .auto-setup-row td.ph-proj { font-style: italic; }
+
+  /* Project Health: view toggle, charts, client-history controls */
+  .ph-view-toggle { display: inline-flex; gap: 4px; background: var(--surface); border: 1px solid var(--border);
+                    border-radius: 999px; padding: 4px; margin-bottom: 16px; }
+  .ph-vbtn { border: none; background: none; color: var(--text-muted); font-family: inherit;
+             font-size: 13px; font-weight: 700; padding: 7px 18px; border-radius: 999px; cursor: pointer; transition: all .12s; }
+  .ph-vbtn.active { background: var(--brand); color: #fff; }
+  .ph-chart-row { padding: 10px 20px 6px; }
+  .ph-chart-wrap { position: relative; height: 460px; }
+  .ph-chart-wrap.ph-chart-tall { height: 440px; }
+  .ch-controls { display: flex; gap: 16px; align-items: flex-end; padding: 4px 20px 12px; flex-wrap: wrap; }
+  .ch-controls .ctrl-group { min-width: 240px; }
+  .ch-note { padding: 0 20px 16px; font-size: 12px; color: var(--text-muted); }
+  .ch-block-title { padding: 4px 20px 6px; font-size: 15px; font-weight: 800; color: var(--text); }
+  .ch-proj-sub { margin: 18px 0 2px; padding: 10px 20px 6px; font-size: 13px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--brand); border-top: 2px solid var(--border); }
+  .ch-proj-block { padding-top: 6px; }
+  .ch-cum-tag { display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #33373D; background: #EDEFF2; border-radius: 10px; padding: 1px 8px; vertical-align: middle; }
+  .ch-cum-note { background: #FBF3D9; border-left: 3px solid #E8C13A; margin: 0 20px 8px; padding: 8px 12px; border-radius: 0 6px 6px 0; color: var(--text); }
+  .ch-cum-tag.invest { color: #2C6E6A; background: #DCEEEC; }
+  .ch-invest-note { background: #E7F1F0; border-left-color: #46B29D; }
+  .status-cell { white-space: nowrap; }
+  .ch-jump { margin-left: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--brand);
+             font-family: inherit; font-size: 13px; font-weight: 700; line-height: 1; padding: 4px 8px; border-radius: 999px;
+             cursor: pointer; transition: all .12s; }
+  .ch-jump:hover { background: var(--brand); color: #fff; border-color: var(--brand); }
+
+  /* Team Utilisation: trend/comparison */
+  .tu-trend-title { font-weight: 800; color: var(--ink); font-size: 14px; padding: 12px 20px 0; }
+  .ph-sub { font-weight: 700; color: var(--text-muted); font-size: 12px; text-transform: uppercase;
+            letter-spacing: .4px; padding: 14px 20px 0; }
+  .tu-team-checks { display: flex; flex-wrap: wrap; gap: 8px 16px; padding-top: 4px; }
+  .tu-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text);
+              font-weight: 600; cursor: pointer; }
+  .tu-check input { width: auto; }
+
+  /* Commission: history pivot + leadership grand total */
+  .pivot-table { table-layout: fixed; }
+  .pivot-table th, .pivot-table td { white-space: nowrap; }
+  .pivot-bar-cell { position: relative; padding: 4px 2px !important; }
+  .pivot-bar { height: 22px; background: #EE5C86; border-radius: 0 4px 4px 0; }
+  .grand-total td { border-top: 2px solid var(--border); background: var(--bg); }
+</style>
+</head>
+<body>
+
+<!-- Sign-in gate (Google Sign-In allowlist) — covers everything until authorised -->
+<div id="signinGate" style="position:fixed; inset:0; background:#F7F8FA; z-index:99999; display:flex; align-items:center; justify-content:center; font-family:'Mulish',system-ui,sans-serif;">
+  <div style="text-align:center; background:#fff; border:1px solid #E5E7EB; border-radius:16px; padding:36px 40px; max-width:420px; box-shadow:0 8px 30px rgba(0,0,0,.08);">
+    <h1 style="color:#EB1F57; font-size:22px; font-weight:800; margin:0 0 8px;">Savvy Dashboard</h1>
+    <p id="signinMsg" style="color:#6B7280; font-size:14px; margin:0 0 20px;">Sign in with your Google account to continue.</p>
+    <div id="gbtn" style="display:flex; justify-content:center;"></div>
+    <div id="signinErr" style="color:#EB1F57; font-weight:700; font-size:13px; margin-top:14px;"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     HEADER
+══════════════════════════════════════════════════════════════════════════════ -->
+<header class="header">
+  <h1><span class="brand-dot"></span>Strictly Savvy<span class="header-sub">Team Dashboard</span></h1>
+  <div class="header-right">
+    <div class="data-meta" id="dataMeta"></div>
+    <span class="build-badge" title="build 2026-06-26·m">&#9432;</span>
+    <span class="refresh-info" id="refreshInfo"></span>
+    <button class="btn btn-secondary btn-sm" onclick="logout()" id="logoutBtn" style="display:none">
+      Sign out
+    </button>
+  </div>
+</header>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     LANDING SCREEN
+══════════════════════════════════════════════════════════════════════════════ -->
+<div id="landing">
+  <div class="landing-card">
+    <div class="logo">📊</div>
+    <h2>Welcome</h2>
+    <p>Select your name to view your personalised dashboard.</p>
+    <div class="ctrl-group" style="margin-bottom:20px;">
+      <label>Who are you?</label>
+      <select id="userSelect" onchange="onUserSelect()">
+        <option value="">— Loading team members… —</option>
+      </select>
+    </div>
+    <button class="btn btn-primary" style="width:100%" onclick="loadDashboard()" id="goBtn" disabled>
+      View Dashboard →
+    </button>
+    <p style="margin-top:16px; font-size:12px" id="landingError" class="text-muted"></p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     MAIN DASHBOARD (hidden until user selects)
+══════════════════════════════════════════════════════════════════════════════ -->
+<div id="dashboard" class="main hidden">
+
+  <!-- Controls bar -->
+  <div class="controls">
+    <div class="ctrl-group">
+      <label>Month</label>
+      <select id="monthSelect" onchange="onMonthChange()"></select>
+    </div>
+    <div class="ctrl-group" id="ownerFilterWrap" style="display:none">
+      <label>Focus on team member</label>
+      <select id="ownerFilter" onchange="onMemberFilterChange()">
+        <option value="">All team members</option>
+      </select>
+    </div>
+    <div class="ctrl-group" id="teamFilterWrap" style="display:none">
+      <label>Filter by Team</label>
+      <select id="teamFilter" onchange="applyFilters()">
+        <option value="">All Teams</option>
+      </select>
+    </div>
+    <div style="margin-left:auto; display:flex; gap:12px; align-items:center;">
+      <a id="adminLink" href="#" target="_blank" rel="noopener" title="Enter approved additional hours" style="display:none; font-size:13px; font-weight:700; color:var(--brand); text-decoration:none; border:1px solid var(--brand); border-radius:8px; padding:5px 11px;">⚙ Admin</a>
+      <div id="currentUserBadge" style="font-size:13px; color:var(--text-muted);"></div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs" id="tabBar"></div>
+
+  <!-- Tab panels -->
+  <div id="panelProjectHealth"   class="tab-panel"></div>
+  <div id="panelTeamUtil"        class="tab-panel hidden"></div>
+  <div id="panelClientBreakdown" class="tab-panel hidden"></div>
+  <div id="panelCommission"      class="tab-panel hidden"></div>
+
+</div>
+
+<!-- PIN Modal -->
+<div id="pinModal" class="modal-overlay hidden">
+  <div class="modal">
+    <h3>🔒 Admin Access</h3>
+    <p>Enter your PIN to view commission and bonus data.</p>
+    <div id="pinError" class="modal-error hidden"></div>
+    <input type="password" id="pinInput" maxlength="8" placeholder="PIN"
+           onkeydown="if(event.key==='Enter') submitPin()">
+    <button class="btn btn-primary" style="width:100%" onclick="submitPin()">Unlock</button>
+    <button class="btn btn-secondary" style="width:100%; margin-top:8px" onclick="closePin()">Cancel</button>
+  </div>
+</div>
+
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+// CONFIG — replace with your deployed Apps Script Web App URL
+// ═══════════════════════════════════════════════════════════════════════════
+const API_BASE = 'https://script.google.com/macros/s/AKfycbwZm9otoLLyPgiTkyHvv0XSOmTXp3oSZz9xU3psTguBzDripZP2Oel8cTN_MvgQs3Rb/exec'; // e.g. https://script.google.com/macros/s/ABC.../exec
+
+// Google Sign-In OAuth 2.0 Web client ID (from Google Cloud Console → Credentials).
+// The SAME id must be set in the Apps Script property DASHBOARD_OAUTH_CLIENT_ID.
+const GOOGLE_CLIENT_ID = '512097272308-un86rpsncchti48q9ceif9gsf2p2f30c.apps.googleusercontent.com';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════════════════
+let state = {
+  users:           [],
+  currentUser:     null,   // { id, email, name, role_label, team_label }
+  selectedMonth:   '',
+  availableMonths: [],
+  projectHealth:   null,
+  teamUtil:        null,
+  clientBreakdown: null,
+  commissionData:  null,
+  adminPin:        null,
+  charts:          {},
+  activeTab:       '',
+  memberFilter:    '',     // Project Health: focus on one team member (server-scoped)
+  clientList:      null,
+  tuChartInstances: [],    // Team Utilisation chart instances (destroyed on re-render)
+  idToken:         '',     // Google Sign-In ID token (sent with every API request)
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// API
+// ═══════════════════════════════════════════════════════════════════════════
+async function api(action, extra = {}) {
+  const params = new URLSearchParams({ action, ...extra, idtoken: state.idToken || '' });
+  // no-store: never let the browser serve a stale cached response (the server
+  // has its own versioned cache). Fixes fixed-URL calls like getDataMeta.
+  const res = await fetch(`${API_BASE}?${params}`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`API error ${res.status}`);
+  const data = await res.json();
+  if (data && data.error === 'auth') { handleAuthError(data); throw new Error(data.message || 'Sign-in required'); }
+  return data;
+}
+
+// Show the sign-in gate again when the token is missing/expired or not allowlisted.
+function handleAuthError(data) {
+  const gate = document.getElementById('signinGate');
+  if (gate) gate.style.display = 'flex';
+  const err = document.getElementById('signinErr');
+  if (err) err.textContent = (data && data.reason === 'denied')
+    ? (data.message || 'This account is not on the access list.')
+    : '';
+  if (data && data.reason !== 'denied' && window.google && google.accounts) {
+    try { google.accounts.id.prompt(); } catch (e) {}
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════════════════
+async function init() {
+  try {
+    // One combined bootstrap call (names + months + header meta) — falls back to
+    // the three separate calls if the endpoint isn't deployed yet.
+    let userList, monthsArr, meta;
+    try {
+      const boot = await api('getBootstrap');
+      userList = boot.users; monthsArr = boot.months || []; meta = boot.meta;
+    } catch (e) {
+      const [ul, m, dm] = await Promise.all([api('getUserList'), api('getAvailableMonths'), api('getDataMeta')]);
+      userList = ul; monthsArr = m.months || []; meta = dm;
+    }
+
+    state.users = userList;
+    state.availableMonths = monthsArr;
+    renderDataMeta(meta);
+
+    // Populate user dropdown
+    const sel = document.getElementById('userSelect');
+    sel.innerHTML = '<option value="">— Select your name —</option>';
+    userList.forEach(u => {
+      const opt = document.createElement('option');
+      opt.value = u.email;
+      opt.textContent = `${u.name} (${u.team_label})`;
+      sel.appendChild(opt);
+    });
+
+    // Set default month to current month or most recent
+    const now = new Date();
+    const curMonth = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}`;
+    state.selectedMonth = state.availableMonths.includes(curMonth)
+      ? curMonth
+      : (state.availableMonths[0] || curMonth);
+
+  } catch (e) {
+    document.getElementById('landingError').textContent =
+      '⚠️ Could not connect to data source. Check the API_BASE URL is set correctly.';
+    console.error(e);
+  }
+}
+
+function renderDataMeta(meta) {
+  const el = document.getElementById('dataMeta');
+  if (!el || !meta) return;
+  const parts = [];
+  if (meta.last_refresh)      parts.push(`<div><b>Last data refresh:</b> ${esc(meta.last_refresh)}</div>`);
+  if (meta.latest_time_entry) parts.push(`<div><b>Latest time entry:</b> ${esc(meta.latest_time_entry)}</div>`);
+  el.innerHTML = parts.join('');
+}
+
+function onUserSelect() {
+  const email = document.getElementById('userSelect').value;
+  document.getElementById('goBtn').disabled = !email;
+}
+
+async function loadDashboard() {
+  const email = document.getElementById('userSelect').value;
+  if (!email) return;
+
+  state.currentUser = state.users.find(u => u.email === email);
+  if (!state.currentUser) return;
+
+  // Default the Project Health focus: leadership team → all team members;
+  // everyone else → focused on themselves.
+  const isLeadership = (state.currentUser.team_label || '').toLowerCase() === 'leadership';
+  state.memberFilter = isLeadership ? '' : state.currentUser.email;
+
+  // Team Utilisation: leadership opens on "This Month" (everyone); other members
+  // open on "Individual History" pre-selected to themselves (they can still
+  // switch to This Month to see everyone).
+  tuView = isLeadership ? 'month' : 'trend';
+  tuTrendMember = state.currentUser.email;
+
+  // Hide landing, show dashboard
+  document.getElementById('landing').classList.add('hidden');
+  document.getElementById('dashboard').classList.remove('hidden');
+  document.getElementById('logoutBtn').style.display = 'block';
+
+  // Set current user badge
+  document.getElementById('currentUserBadge').textContent =
+    `👤 ${state.currentUser.name} · ${state.currentUser.team_label}`;
+
+  // Build month selector
+  buildMonthSelector();
+
+  // Build tabs based on role
+  buildTabs();
+
+  // Switch to (and load) the first tab — this shows the panel and fetches data
+  await switchTab(state.activeTab);
+}
+
+function buildMonthSelector() {
+  const sel = document.getElementById('monthSelect');
+  sel.innerHTML = '';
+  state.availableMonths.forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m;
+    opt.textContent = formatMonth(m);
+    if (m === state.selectedMonth) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+function formatMonth(yyyymm) {
+  if (!yyyymm || yyyymm.length < 6) return yyyymm;
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const m = parseInt(yyyymm.substring(4,6)) - 1;
+  const y = yyyymm.substring(0,4);
+  return `${months[m]} ${y}`;
+}
+
+function buildTabs() {
+  const role = (state.currentUser.role_label || '').toLowerCase();
+  const team = (state.currentUser.team_label || '').toLowerCase();
+  const isAdmin    = role === 'admin' || team === 'leadership';
+  const isNZ       = role.includes('nz') || team.includes('nz');
+  const isGlobal   = role.includes('global') || team.includes('global') || team.includes('automation');
+  const isManager  = role.includes('manager');
+
+  // ⚙ Admin link (Additional Hours page) — leadership/admin only.
+  const adminLink = document.getElementById('adminLink');
+  if (adminLink) {
+    if (isAdmin) { adminLink.href = API_BASE + '?page=admin'; adminLink.style.display = 'inline-flex'; }
+    else adminLink.style.display = 'none';
+  }
+
+  const tabs = [];
+
+  if (isAdmin || isManager) {
+    tabs.push({ id: 'ProjectHealth',   label: '📋 Project Health' });
+    tabs.push({ id: 'TeamUtil',        label: '📊 Team Utilisation' });
+    tabs.push({ id: 'Commission',      label: '💰 Bonus & Commission' });
+    state.canTeamFilter = true;   // team filter available to admins/managers — shown only on Team Utilisation (see switchTab)
+  } else if (isNZ) {
+    tabs.push({ id: 'ProjectHealth', label: '🏢 My Clients' });
+    tabs.push({ id: 'TeamUtil',      label: '📊 My Productivity' });
+    if (state.currentUser.has_commission_package) tabs.push({ id: 'Commission', label: '💰 My Commission' });
+  } else if (isGlobal) {
+    tabs.push({ id: 'ProjectHealth', label: '🏢 My Clients' });
+    tabs.push({ id: 'TeamUtil',      label: '📊 My Productivity' });
+    if (state.currentUser.has_commission_package) tabs.push({ id: 'Commission', label: '💰 My Commission' });
+  } else {
+    // Fallback
+    tabs.push({ id: 'ProjectHealth', label: '🏢 My Clients' });
+    tabs.push({ id: 'TeamUtil',      label: '📊 My Hours' });
+    if (state.currentUser.has_commission_package) tabs.push({ id: 'Commission', label: '💰 My Commission' });
+  }
+
+  // "Focus on team member" is available to everyone (defaults to self for
+  // non-leadership; All for leadership) — anyone may switch focus.
+  document.getElementById('ownerFilterWrap').style.display = 'flex';
+  populateMemberFilter();
+
+  const bar = document.getElementById('tabBar');
+  bar.innerHTML = '';
+  tabs.forEach((t, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'tab' + (i === 0 ? ' active' : '');
+    btn.textContent = t.label;
+    btn.dataset.panel = t.id;
+    btn.onclick = () => switchTab(t.id);
+    bar.appendChild(btn);
+  });
+
+  state.activeTab = tabs[0].id;
+}
+
+async function switchTab(tabId) {
+  state.activeTab = tabId;
+  // Update tab bar
+  document.querySelectorAll('.tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.panel === tabId);
+  });
+  // Show/hide panels
+  document.querySelectorAll('.tab-panel').forEach(p => {
+    p.classList.toggle('hidden', !p.id.includes(tabId));
+  });
+  // The "Filter by Team" control only applies to Team Utilisation, so only show it
+  // there (and only for admins/managers who have it enabled).
+  const tfw = document.getElementById('teamFilterWrap');
+  if (tfw) tfw.style.display = (state.canTeamFilter && tabId === 'TeamUtil') ? 'flex' : 'none';
+  // Fetch data if not yet loaded for this tab, then render
+  await refreshData();
+}
+
+async function onMonthChange() {
+  state.selectedMonth = document.getElementById('monthSelect').value;
+  // Clear cached data
+  state.projectHealth = null;
+  state.teamUtil = null;
+  state.clientBreakdown = null;
+  state.commissionData = null;
+  await refreshData();
+}
+
+async function refreshData() {
+  const tab = state.activeTab;
+  const month = state.selectedMonth;
+  const email = state.currentUser.email;
+
+  try {
+    if (tab === 'ProjectHealth' && !state.projectHealth) {
+      showLoading('panelProjectHealth');
+      state.projectHealth = await api('getProjectHealth', { month, email: state.memberFilter || '' });
+    }
+    if (tab === 'TeamUtil' && !state.teamUtil) {
+      showLoading('panelTeamUtil');
+      state.teamUtil = await api('getTeamUtilisation', { month });
+      populateTeamFilter(state.teamUtil.rows);
+    }
+    if (tab === 'ClientBreakdown' && !state.clientBreakdown) {
+      showLoading('panelClientBreakdown');
+      state.clientBreakdown = await api('getClientBreakdown', { month, email });
+    }
+    // Commission loaded on demand via PIN flow
+  } catch (e) {
+    console.error(e);
+  }
+
+  renderActiveTab();
+}
+
+function renderActiveTab() {
+  const tab = state.activeTab;
+  if (tab === 'ProjectHealth')   renderProjectHealth();
+  if (tab === 'TeamUtil')        renderTeamUtil();
+  if (tab === 'ClientBreakdown') renderClientBreakdown();
+  if (tab === 'Commission')      renderCommission();
+}
+
+function showLoading(panelId) {
+  document.getElementById('panel' + panelId.replace('panel','')).innerHTML =
+  document.getElementById(panelId).innerHTML =
+    `<div class="loading"><div class="loading-spinner"></div><br>Loading data…</div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FILTER HELPERS
+// ═══════════════════════════════════════════════════════════════════════════
+function populateOwnerFilter(rows) {
+  const owners = [...new Set(rows.map(r => r.owner_email).filter(Boolean))].sort();
+  const sel = document.getElementById('ownerFilter');
+  sel.innerHTML = '<option value="">All Owners</option>';
+  owners.forEach(o => {
+    const opt = document.createElement('option');
+    opt.value = o;
+    opt.textContent = o.split('@')[0];
+    sel.appendChild(opt);
+  });
+}
+
+function populateTeamFilter(rows) {
+  const teams = [...new Set(rows.map(r => r.team_label).filter(Boolean))].sort();
+  const sel = document.getElementById('teamFilter');
+  sel.innerHTML = '<option value="">All Teams</option>';
+  teams.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t;
+    opt.textContent = t;
+    sel.appendChild(opt);
+  });
+}
+
+function applyFilters() { renderActiveTab(); }
+
+// Member filter (Project Health) — lists ALL team members grouped by team; the
+// data is scoped server-side per the member's team, so selecting re-fetches.
+function populateMemberFilter() {
+  const sel = document.getElementById('ownerFilter');
+  if (!sel) return;
+  const byTeam = {};
+  (state.users || []).forEach(u => { const t = u.team_label || 'Other'; (byTeam[t] = byTeam[t] || []).push(u); });
+  let html = '<option value="">All team members</option>';
+  Object.keys(byTeam).sort().forEach(t => {
+    const members = byTeam[t].sort((a, b) => a.name.localeCompare(b.name));
+    html += `<optgroup label="${t}">` + members.map(u => `<option value="${u.email}">${esc(u.name)}</option>`).join('') + '</optgroup>';
+  });
+  sel.innerHTML = html;
+  if (state.memberFilter) sel.value = state.memberFilter;
+}
+function onMemberFilterChange() {
+  state.memberFilter = document.getElementById('ownerFilter').value || '';
+  state.projectHealth = null;     // re-fetch scoped to the selected member
+  refreshData();
+}
+
+function getOwnerFilter() { return document.getElementById('ownerFilter')?.value || ''; }
+function getTeamFilter()  { return document.getElementById('teamFilter')?.value  || ''; }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RENDER: PROJECT HEALTH
+// ═══════════════════════════════════════════════════════════════════════════
+// Project Health sections in display order. `keys` are the agreement_type values
+// returned by the API (Other is shown with Flexi). `cumulative` flips the section
+// to project-to-date vs total budget; `ceiling` flags the hard-ceiling styling.
+const PH_SECTIONS = [
+  { key: 'Role Management',   title: 'Role Management',     tag: 'Hard ceiling', ceiling: true, keys: ['Role Management'] },
+  { key: 'Service Plan',      title: 'Service Plans',       tag: 'Monthly budget',              keys: ['Service Plan'] },
+  { key: 'Monthly Fixed Fee', title: 'Monthly Fixed Fee',  tag: 'Hard ceiling', ceiling: true, keys: ['Monthly Fixed Fee'] },
+  { key: 'Flexi to Service',  title: 'Flexi to Service',    tag: 'Monthly budget',              keys: ['Flexi to Service'] },
+  { key: 'Flexi',             title: 'Flexi & Other',       tag: 'Pay-as-you-go',               keys: ['Flexi', 'Other'] },
+  { key: 'Project',           title: 'Project / Fixed Fee', tag: 'Cumulative · to date', cumulative: true, keys: ['Project'] },
+];
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, c =>
+    ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+}
+// Strip the leading "Type / " classifier prefix from a project name (the client
+// is already shown in the group header).
+function stripPrefix(name) {
+  const s = String(name || '');
+  const i = s.indexOf(' / ');
+  return i >= 0 ? s.slice(i + 3) : s;
+}
+const fmt1 = (v) => (v === 0 || v) ? (+v).toFixed(1) : '–';
+const dashMuted = (v) => v ? (+v).toFixed(1) : '<span class="text-muted">–</span>';
+
+let phSort = 'pct';   // client sort: 'pct' (% used desc) or 'name'
+function setPhSort(v) { phSort = v; renderProjectHealth(); }
+
+let phView = 'month';        // 'month' (per-month view) or 'history' (client history)
+let phHistSelected = '';     // remembered client_id for the history view
+function setPhView(v) { phView = v; renderProjectHealth(); }
+
+// Jump straight from a client's table row to its 12-month history.
+async function jumpToClientHistory(clientName) {
+  if (!state.clientList) { try { state.clientList = (await api('getClientList')).clients || []; } catch (e) {} }
+  const norm = s => String(s || '').trim().toLowerCase();
+  const match = (state.clientList || []).find(c => norm(c.client_name) === norm(clientName));
+  phHistSelected = match ? match.client_id : '';
+  phView = 'history';
+  renderProjectHealth();
+}
+
+// Chart colours (Strictly Savvy brand + distinct usage segments).
+const CH = {
+  budget: '#C9CDD2', additional: '#F6A57A',
+  nz: '#EB1F57', global: '#6B8483', automation: '#8B6CB3', nonbill: '#E8853A', internal: '#E8C13A', internalTransition: '#5B7C99',
+  // Project stack — deliberately a cool blue/green family, distinct from the
+  // warm usage palette above so the 3rd bar doesn't blend with the 2nd.
+  projPalette: ['#2D6CDF', '#18A558', '#3F51B5', '#B5651D', '#7CB342', '#5C6BC0', '#2E7D32', '#8D6E63', '#1565C0', '#9E9D24'],
+};
+
+function destroyPhCharts() {
+  (state.phChartInstances || []).forEach(c => { try { c.destroy(); } catch (e) {} });
+  state.phChartInstances = [];
+}
+function chunk_(arr, n) { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; }
+// Split into the fewest charts of ≤maxPer, balanced evenly:
+// 30→[15,15], 48→[16,16,16], 27→[14,13]. ≤maxPer stays a single chart.
+function chunkBalanced_(arr, maxPer) {
+  const n = arr.length;
+  if (n <= maxPer) return [arr];
+  const per = Math.ceil(n / Math.ceil(n / maxPer));
+  return chunk_(arr, per);
+}
+function tr_(s, n) { s = String(s || ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+
+// Shared "budget bar + usage stack" chart config (used by section + history charts).
+function chartBaseOptions_(yTitle, rotation, tickFont) {
+  return {
+    responsive: true, maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    scales: {
+      x: { stacked: true, ticks: { maxRotation: rotation || 60, minRotation: rotation || 0, autoSkip: false, font: { size: tickFont || 11 } } },
+      y: { stacked: true, beginAtZero: true, title: { display: true, text: yTitle } },
+    },
+    plugins: {
+      legend: {
+        position: 'top',
+        labels: {
+          boxWidth: 12, font: { size: 11 },
+          // Insert a faint "│" divider between each stack grouping.
+          generateLabels: (chart) => {
+            const base = Chart.defaults.plugins.legend.labels.generateLabels(chart);
+            const out = []; let prev;
+            base.forEach((item) => {
+              const ds = chart.data.datasets[item.datasetIndex];
+              const stack = ds && ds.stack;
+              if (prev !== undefined && stack !== prev) {
+                out.push({ text: '│', fillStyle: 'rgba(0,0,0,0)', strokeStyle: 'rgba(0,0,0,0)', lineWidth: 0, datasetIndex: -1, fontColor: '#9AA0A6' });
+              }
+              out.push(item); prev = stack;
+            });
+            return out;
+          },
+        },
+        onClick: (e, item, legend) => {
+          if (item.datasetIndex == null || item.datasetIndex < 0) return;   // ignore dividers
+          const ci = legend.chart;
+          ci.isDatasetVisible(item.datasetIndex) ? ci.hide(item.datasetIndex) : ci.show(item.datasetIndex);
+        },
+      },
+      tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${(+c.parsed.y).toFixed(1)}h` } },
+    },
+  };
+}
+// opts: { barThickness } keeps bars a fixed width regardless of how many clients
+// are in the chart (so the final, shorter chart matches the full ones);
+// { rotation } steepens the x-axis labels to fit more clients.
+function makeBudgetUsageConfig(labels, items, opts) {
+  opts = opts || {};
+  const ds = (label, key, color, stack) => {
+    const d = { label, data: items.map(i => +(i[key] || 0).toFixed(2)), backgroundColor: color, stack };
+    if (opts.barThickness) { d.barThickness = opts.barThickness; d.maxBarThickness = opts.barThickness; }
+    return d;
+  };
+  return {
+    type: 'bar',
+    data: { labels, datasets: [
+      ds('Budget', 'base', CH.budget, 'budget'),
+      ds('+Additional', 'additional', CH.additional, 'budget'),
+      ds('NZ', 'nz', CH.nz, 'usage'),
+      ds('Global', 'global', CH.global, 'usage'),
+      ds('AutoMate', 'auto', CH.automation, 'usage'),
+      ds('Non-billable', 'nonbill', CH.nonbill, 'usage'),
+      ds('Automation Setup', 'internal', CH.internal, 'usage'),
+      ds('Internal', 'internal_transition', CH.internalTransition, 'usage'),
+    ] },
+    options: chartBaseOptions_('Hours', opts.rotation, opts.tickFont),
+  };
+}
+function createSectionChart(cfg) {
+  const el = document.getElementById(cfg.id);
+  if (!el) return;
+  state.phChartInstances.push(new Chart(el.getContext('2d'), makeBudgetUsageConfig(cfg.labels, cfg.items, { rotation: 60, tickFont: 13 })));
+}
+
+// Expand/collapse a client summary row — toggles the project rows beneath it.
+function toggleClientRow(el) {
+  el.classList.toggle('open');
+  let r = el.nextElementSibling;
+  while (r && !r.classList.contains('client-row')) {
+    r.classList.toggle('proj-hidden');
+    r = r.nextElementSibling;
+  }
+}
+
+const sectionKeyForType = (t) => {
+  const hit = PH_SECTIONS.find(s => s.keys.includes(t));
+  return hit ? hit.key : 'Flexi';   // unknown types fall in with Flexi & Other
+};
+
+function renderProjectHealth() {
+  const panel = document.getElementById('panelProjectHealth');
+  if (!state.projectHealth) { panel.innerHTML = '<div class="loading"><div class="loading-spinner"></div></div>'; return; }
+  destroyPhCharts();
+
+  const toggle = `
+    <div class="ph-view-toggle">
+      <button class="ph-vbtn ${phView === 'month' ? 'active' : ''}" onclick="setPhView('month')">This Month</button>
+      <button class="ph-vbtn ${phView === 'history' ? 'active' : ''}" onclick="setPhView('history')">Client History</button>
+    </div>`;
+
+  if (phView === 'history') {
+    panel.innerHTML = toggle + renderPhHistoryShell();
+    initPhHistory();
+    return;
+  }
+
+  const built = buildPhMonthView();
+  panel.innerHTML = toggle + built.html;
+  built.charts.forEach(createSectionChart);
+}
+
+function buildPhMonthView() {
+  const rows = state.projectHealth.rows.slice();   // already scoped server-side to the selected member
+
+  const total        = rows.length;
+  const clientCount  = new Set(rows.map(r => r.client_name || '—')).size;
+  const isFlexiRow   = (r) => r.agreement_type === 'Flexi' || r.agreement_type === 'Other'
+                            || (r.agreement_type === 'Flexi to Service' && (r.total_allowed || 0) <= 0);
+  const budgetRows   = rows.filter(r => !isFlexiRow(r));   // budget figures exclude Flexi
+  const baseBudget   = budgetRows.reduce((s, r) => s + (r.budget_hours || 0), 0);
+  const addBudget    = budgetRows.reduce((s, r) => s + (r.additional_hours || 0), 0);
+  const totalBudget  = baseBudget + addBudget;
+  const billableUsed = budgetRows.reduce((s, r) => s + (r.billable_used ?? r.hours_used ?? 0), 0);
+  const budgetPct    = totalBudget > 0 ? Math.round((billableUsed / totalBudget) * 100) : null;
+  const flexiHours   = rows.filter(isFlexiRow).reduce((s, r) => s + (r.billable_used ?? r.hours_used ?? 0), 0);
+  const overRows     = budgetRows.filter(r => r.is_over_budget);   // over-budget excludes Flexi
+  const overCount    = overRows.length;
+  const overClients  = new Set(overRows.map(r => r.client_name || '—')).size;
+  // When a member is focused the server returns per-member figures (member_*);
+  // the all-team view leaves them null and uses whole-project totals.
+  const memberFocused = rows.some(r => r.member_revenue != null);
+  const nonBillable  = rows.reduce((s, r) => s + ((r.member_non_billable  != null ? r.member_non_billable  : r.non_billable_hours)  || 0), 0);
+  const internalAuto = rows.reduce((s, r) => s + ((r.member_internal_auto != null ? r.member_internal_auto : r.internal_auto_hours) || 0), 0);
+  const revenue      = rows.reduce((s, r) => s + (r.member_revenue != null ? r.member_revenue : (r.revenue || 0)), 0);
+
+  // Each client's primary MONTHLY section (from its non-automation projects).
+  // Automation Setup is monthly/internal, so it's anchored to a monthly section
+  // and must never land in the cumulative "Project / Fixed Fee" section.
+  const clientPrimary = {};
+  rows.forEach(r => {
+    if (r.is_automation_setup || r.is_internal_transition) return;
+    const sec = sectionKeyForType(r.agreement_type);
+    if (sec === 'Project') return;   // skip cumulative — don't anchor internal rows there
+    const c = r.client_name || '—';
+    const cand = { sec, allowed: r.total_allowed || 0 };
+    if (!clientPrimary[c] || cand.allowed > clientPrimary[c].allowed) clientPrimary[c] = cand;
+  });
+  const sectionOfRow = (r) => (r.is_automation_setup || r.is_internal_transition)
+    ? ((clientPrimary[r.client_name || '—'] && clientPrimary[r.client_name || '—'].sec) || 'Flexi')
+    : sectionKeyForType(r.agreement_type);
+
+  const bySection = {};
+  rows.forEach(r => { (bySection[sectionOfRow(r)] = bySection[sectionOfRow(r)] || []).push(r); });
+
+  const kpis = `
+    <div class="kpi-row">
+      <div class="kpi brand"><div class="kpi-label">Clients / Projects</div><div class="kpi-value">${clientCount} / ${total}</div><div class="kpi-sub">${state.selectedMonth ? formatMonth(state.selectedMonth) : ''}</div></div>
+      <div class="kpi"><div class="kpi-label">Total Budget</div><div class="kpi-value">${totalBudget.toFixed(1)}</div><div class="kpi-sub">base ${baseBudget.toFixed(1)}<br>+ additional ${addBudget.toFixed(1)}</div></div>
+      <div class="kpi"><div class="kpi-label">Billable Used</div><div class="kpi-value">${billableUsed.toFixed(1)}</div><div class="kpi-sub">${budgetPct == null ? 'hours vs budget' : budgetPct + '% of budget'}<br>excl. Flexi</div></div>
+      <div class="kpi"><div class="kpi-label">Flexi / Other Hours</div><div class="kpi-value">${flexiHours.toFixed(1)}</div><div class="kpi-sub">billable · outside budget</div></div>
+      <div class="kpi ${overCount > 0 ? 'danger' : 'success'}"><div class="kpi-label">Over Budget · clients / projects</div><div class="kpi-value">${overClients} / ${overCount}</div><div class="kpi-sub">excludes Flexi</div></div>
+      <div class="kpi warning"><div class="kpi-label">Non-Billable</div><div class="kpi-value">${nonBillable.toFixed(1)}</div><div class="kpi-sub">${memberFocused ? "member's own hours" : 'tracked, not billed'}</div></div>
+      <div class="kpi"><div class="kpi-label">Automation Setup</div><div class="kpi-value">${internalAuto.toFixed(1)}</div><div class="kpi-sub">${memberFocused ? "member's own build time" : 'build time invested'}</div></div>
+      <div class="kpi brand"><div class="kpi-label">Monthly Revenue</div><div class="kpi-value">$${Math.round(revenue).toLocaleString()}</div><div class="kpi-sub">${memberFocused ? 'generated by member<br>(recoverable)' : 'fees (capped) + flexi'}</div></div>
+    </div>`;
+
+  const toolbar = `
+    <div class="ph-toolbar">
+      <span class="ph-toolbar-label">Sort clients by</span>
+      <button class="ph-sort ${phSort === 'pct' ? 'active' : ''}" onclick="setPhSort('pct')">% Used</button>
+      <button class="ph-sort ${phSort === 'name' ? 'active' : ''}" onclick="setPhSort('name')">Name</button>
+      <span class="ph-hint">click a client row to expand its projects</span>
+    </div>`;
+
+  const charts = [];
+  const sections = PH_SECTIONS
+    .map(s => (bySection[s.key] && bySection[s.key].length) ? buildProjectSection(s, bySection[s.key], charts) : '')
+    .join('');
+
+  return { html: kpis + toolbar + (sections || '<div class="empty">No projects found for this period.</div>'), charts };
+}
+
+// Aggregate a client's projects (billable figures exclude Automation Setup).
+function aggregateClient_(cr) {
+  const a = { base: 0, additional: 0, allowed: 0, nz: 0, global: 0, auto: 0, nonbill: 0, internal: 0, internalTransition: 0, used: 0, notes: [] };
+  cr.forEach(r => {
+    a.internal += r.internal_auto_hours || 0;
+    a.internalTransition += r.internal_transition_hours || 0;
+    if (r.is_automation_setup || r.is_internal_transition) return;   // internal only — never billable
+    a.base       += r.budget_hours || 0;
+    a.additional += r.additional_hours || 0;
+    if (r.additional_note) a.notes.push({ p: stripPrefix(r.project_name), note: r.additional_note });
+    a.allowed    += r.total_allowed || 0;
+    a.nz         += r.nz_hours || 0;
+    a.global     += r.global_hours || 0;
+    a.auto       += r.automated_hours || 0;
+    a.nonbill    += r.non_billable_hours || 0;
+    a.used       += r.billable_used ?? r.hours_used ?? 0;
+  });
+  a.pct       = a.allowed > 0 ? Math.round((a.used / a.allowed) * 100) : null;
+  a.remaining = a.allowed > 0 ? a.allowed - a.used : null;
+  a.over      = a.allowed > 0 && a.used > a.allowed;
+  return a;
+}
+
+function buildProjectSection(s, rows, charts) {
+  const over = rows.filter(r => r.is_over_budget).length;
+
+  const groups = {};
+  rows.forEach(r => { const c = r.client_name || '—'; (groups[c] = groups[c] || []).push(r); });
+
+  const clients = Object.keys(groups).map(cn => ({ cn, agg: aggregateClient_(groups[cn]), rows: groups[cn] }));
+  clients.sort((a, b) => {
+    if (phSort === 'name') return a.cn.localeCompare(b.cn);
+    const pa = a.agg.pct == null ? -1 : a.agg.pct;   // no-budget clients sink to bottom
+    const pb = b.agg.pct == null ? -1 : b.agg.pct;
+    return pb - pa;
+  });
+
+  const body = clients.map(({ cn, agg, rows: cr }) => {
+    const projRows = cr.sort((a, b) => (b.pct_used || 0) - (a.pct_used || 0)).map(r => buildProjectRow(r, s)).join('');
+    return buildClientSummaryRow_(cn, agg, cr.length) + projRows;
+  }).join('');
+
+  // Stacked budget-vs-usage chart(s) — one per ≤12 clients so many-client sections
+  // stay readable (a single chart when filtered to one owner).
+  const chartItems = clients.map(c => ({
+    label: tr_(c.cn, 18),
+    base: c.agg.base, additional: c.agg.additional,
+    nz: c.agg.nz, global: c.agg.global, auto: c.agg.auto, nonbill: c.agg.nonbill,
+    internal: c.agg.internal, internal_transition: c.agg.internalTransition,
+  }));
+  // Charts are full-width. When a section splits into multiple charts, each chart's
+  // width is proportional to its client count (vs a 20-client reference), so every
+  // chart shares the same per-client width — the first fills the row, a shorter
+  // final chart is proportionally narrower with matching bars and spacing.
+  let chartHtml = '';
+  if (charts) {
+    const chunks = chunkBalanced_(chartItems, 20);
+    const refCount = chunks[0] ? chunks[0].length : 1;   // first chunk is the largest → per-client reference
+    chunks.forEach((ck, idx) => {
+      const id = `phChart_${s.key.replace(/\W/g, '')}_${idx}`;
+      charts.push({ id, labels: ck.map(i => i.label), items: ck });
+      const widthPct = Math.max((ck.length / refCount) * 100, 5);
+      chartHtml += `<div class="ph-chart-row"><div class="ph-chart-wrap" style="width:${widthPct}%"><canvas id="${id}"></canvas></div></div>`;
+    });
+  }
+
+  return `
+    <div class="card ph-section${s.ceiling ? ' ph-ceiling' : ''}">
+      <div class="ph-section-head">
+        <span class="ph-title">${s.title}</span>
+        <span class="ph-tag ${s.cumulative ? 'tag-cumulative' : (s.ceiling ? 'tag-ceiling' : 'tag-monthly')}">${s.tag}</span>
+        <span class="ph-meta">${clients.length} client${clients.length > 1 ? 's' : ''} · ${rows.length} project${rows.length > 1 ? 's' : ''}${over ? ` · <b class="over-text">${over} over</b>` : ''}</span>
+      </div>
+      ${chartHtml}
+      <div class="table-wrap">
+        <table class="ph-table">
+          <thead><tr>
+            <th>Client / Project</th><th>Owner</th>
+            <th class="num">${s.cumulative ? 'Budget' : 'Base'}</th>
+            <th class="num">+Add</th>
+            <th class="num">Allowed</th>
+            <th class="num">NZ</th><th class="num">Global</th><th class="num">AutoMate</th>
+            <th class="num">Non-Bill</th><th class="num">Auto Setup</th><th class="num">Internal</th>
+            <th class="num">Used</th><th class="num">Remain</th>
+            <th>% Used</th><th>Status</th>
+          </tr></thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function buildClientSummaryRow_(cn, a, nProjects) {
+  const hasBudget = a.allowed > 0;
+  const noteTitle = (a.notes && a.notes.length) ? a.notes.map(n => `${n.p}: ${n.note}`).join('\n') : '';
+  const noteIco   = noteTitle ? ` <span class="note-ico" title="${esc(noteTitle)}">🗒️</span>` : '';
+  const cls   = !hasBudget ? 'none' : a.over ? 'over' : (a.pct >= 80 ? 'warn' : 'ok');
+  const badge = { none: 'badge-none', ok: 'badge-ok', warn: 'badge-warning', over: 'badge-over' }[cls];
+  const label = { none: 'No budget', ok: 'On track', warn: 'Near', over: 'Over' }[cls];
+  return `<tr class="client-row" data-client="${esc(cn)}" onclick="toggleClientRow(this)">
+    <td class="ph-proj"><span class="arrow">▸</span> <span class="client-name">${esc(cn)}</span><span class="client-sub">${nProjects} project${nProjects > 1 ? 's' : ''}</span></td>
+    <td></td>
+    <td class="num">${fmt1(a.base)}</td>
+    <td class="num">${a.additional ? '+' + a.additional.toFixed(1) : '<span class="text-muted">–</span>'}${noteIco}</td>
+    <td class="num"><b>${fmt1(a.allowed)}</b></td>
+    <td class="num">${dashMuted(a.nz)}</td>
+    <td class="num">${dashMuted(a.global)}</td>
+    <td class="num">${dashMuted(a.auto)}</td>
+    <td class="num nonbill">${dashMuted(a.nonbill)}</td>
+    <td class="num col-internal">${dashMuted(a.internal)}</td>
+    <td class="num col-internal">${dashMuted(a.internalTransition)}</td>
+    <td class="num font-mono"><b>${fmt1(a.used)}</b></td>
+    <td class="num">${a.remaining == null ? '–' : a.remaining.toFixed(1)}</td>
+    <td><div class="prog-wrap"><div class="prog-bar"><div class="prog-fill ${cls === 'none' ? 'ok' : cls}" style="width:${Math.min(a.pct || 0, 100)}%"></div></div><span class="prog-pct">${hasBudget ? a.pct + '%' : '–'}</span></div></td>
+    <td class="status-cell"><span class="badge ${badge}">${label}</span><button class="ch-jump" title="Open this client's 12-month history" onclick="event.stopPropagation(); jumpToClientHistory(this.closest('tr').dataset.client)">↗</button></td>
+  </tr>`;
+}
+
+function buildProjectRow(r, s) {
+  const isAuto  = r.is_automation_setup;
+  const isTrans = r.is_internal_transition;
+  const isInternalRow = isAuto || isTrans;
+  const hasBudget = (r.total_allowed || 0) > 0;
+  const pct  = r.pct_used;
+  const cls  = isInternalRow ? 'internal' : (!hasBudget ? 'none' : r.is_over_budget ? 'over' : (pct >= 80 ? 'warn' : 'ok'));
+  const badge = { internal: 'badge-internal', none: 'badge-none', ok: 'badge-ok', warn: 'badge-warning', over: 'badge-over' }[cls];
+  const label = { internal: isTrans ? 'Internal' : 'Auto setup', none: 'No budget', ok: 'On track', warn: 'Near', over: 'Over' }[cls];
+  const billableUsed = r.billable_used ?? r.hours_used;
+  const startLine = (r.tracking === 'cumulative' && r.start_date) ? `<span class="ph-start">Started ${r.start_date}</span>` : '';
+  const nameTag = isAuto  ? '<span class="mini-tag mini-internal">Automation</span>'
+                : isTrans ? '<span class="mini-tag mini-internal">Internal Transition</span>'
+                : (r.tracking === 'cumulative' ? '<span class="mini-tag">cumulative</span>' : '');
+  const muted = '<span class="text-muted">–</span>';
+
+  return `<tr class="proj-row proj-hidden${isInternalRow ? ' auto-setup-row' : ''}">
+    <td class="ph-proj">${esc(stripPrefix(r.project_name)) || '–'}${nameTag}${startLine}</td>
+    <td class="text-muted text-sm">${(r.owner_email || '').split('@')[0] || '–'}</td>
+    <td class="num">${isInternalRow ? muted : fmt1(r.budget_hours)}</td>
+    <td class="num">${r.additional_hours ? '+' + (+r.additional_hours).toFixed(1) : muted}${r.additional_note ? ` <span class="note-ico" title="${esc(r.additional_note)}">🗒️</span>` : ''}</td>
+    <td class="num">${isInternalRow ? muted : '<b>' + fmt1(r.total_allowed) + '</b>'}</td>
+    <td class="num">${dashMuted(r.nz_hours)}</td>
+    <td class="num">${dashMuted(r.global_hours)}</td>
+    <td class="num">${dashMuted(r.automated_hours)}</td>
+    <td class="num nonbill">${dashMuted(r.non_billable_hours)}</td>
+    <td class="num col-internal">${dashMuted(r.internal_auto_hours)}</td>
+    <td class="num col-internal">${dashMuted(r.internal_transition_hours)}</td>
+    <td class="num font-mono">${isInternalRow ? muted : '<b>' + fmt1(billableUsed) + '</b>'}</td>
+    <td class="num">${r.remaining_hours == null ? '–' : (+r.remaining_hours).toFixed(1)}</td>
+    <td>${isInternalRow ? muted : `<div class="prog-wrap"><div class="prog-bar"><div class="prog-fill ${cls === 'none' ? 'ok' : cls}" style="width:${Math.min(pct || 0, 100)}%"></div></div><span class="prog-pct">${hasBudget ? pct + '%' : '–'}</span></div>`}</td>
+    <td><span class="badge ${badge}">${label}</span></td>
+  </tr>`;
+}
+
+// ── Project Health: Client History view ───────────────────────────────────
+function renderPhHistoryShell() {
+  return `
+    <div class="card">
+      <div class="ph-section-head">
+        <span class="ph-title">Client History</span>
+        <span class="ph-meta">month-by-month budget vs usage</span>
+      </div>
+      <div class="ch-controls">
+        <div class="ctrl-group">
+          <label>Client</label>
+          <select id="chClient" onchange="onClientHistoryChange()"><option value="">Loading clients…</option></select>
+        </div>
+        <div class="ctrl-group" style="max-width:180px">
+          <label>Period</label>
+          <select id="chMonths" onchange="onClientHistoryChange()">
+            <option value="6">Last 6 months</option>
+            <option value="12" selected>Last 12 months</option>
+          </select>
+        </div>
+      </div>
+      <div id="chChartArea" style="padding:8px 20px 20px">
+        <div class="empty">Select a client to see their month-by-month history.</div>
+      </div>
+    </div>`;
+}
+
+async function initPhHistory() {
+  const sel = document.getElementById('chClient');
+  if (!sel) return;
+  if (!state.clientList) {
+    try { state.clientList = (await api('getClientList')).clients || []; }
+    catch (e) { sel.innerHTML = '<option value="">Could not load clients</option>'; return; }
+  }
+  const opt = c => `<option value="${c.client_id}">${esc(c.client_name)}</option>`;
+  const active   = state.clientList.filter(c => c.is_active);
+  const inactive = state.clientList.filter(c => !c.is_active);
+  sel.innerHTML = '<option value="">— Select a client —</option>'
+    + (active.length   ? `<optgroup label="● Active clients">${active.map(opt).join('')}</optgroup>` : '')
+    + (inactive.length ? `<optgroup label="○ Inactive clients">${inactive.map(opt).join('')}</optgroup>` : '');
+  if (phHistSelected) { sel.value = phHistSelected; onClientHistoryChange(); }
+}
+
+function onClientHistoryChange() {
+  const cid = document.getElementById('chClient').value;
+  const months = document.getElementById('chMonths').value || '12';
+  phHistSelected = cid;
+  const area = document.getElementById('chChartArea');
+  if (!cid) { area.innerHTML = '<div class="empty">Select a client to see their month-by-month history.</div>'; return; }
+  loadClientHistory(cid, months);
+}
+
+async function loadClientHistory(cid, months) {
+  const area = document.getElementById('chChartArea');
+  area.innerHTML = '<div class="loading"><div class="loading-spinner"></div></div>';
+  try {
+    const data = await api('getProjectHealthHistory', { clientId: cid, months });
+    renderClientHistoryChart(data);
+  } catch (e) { area.innerHTML = '<div class="empty">Could not load history.</div>'; }
+}
+
+function renderClientHistoryChart(data) {
+  const area = document.getElementById('chChartArea');
+  const S = data.series || [];
+  if (!S.length) { area.innerHTML = '<div class="empty">No history for this client in the selected period.</div>'; return; }
+
+  const labels   = (data.months || []).map(formatMonth);
+  const projList = data.projects || [];
+
+  // Automation Setup + Internal Transition are our own-cost investment in the client
+  // (non-chargeable, essentially cumulative). They don't get their own per-project
+  // chart — they're combined into a single cumulative "investment" chart instead.
+  const isInvest = (p) => p.type === 'Automation Setup' || p.type === 'Internal Transition';
+  const normalProjects = projList.filter(p => !isInvest(p));
+  const hasInvestment  = S.some(m => (m.internal_auto_hours || 0) > 0 || (m.internal_transition_hours || 0) > 0);
+  const streams        = normalProjects.length + (hasInvestment ? 1 : 0);
+  const showBreakdown  = streams > 1;
+  const single         = projList.length === 1 ? projList[0] : null;
+
+  // ── Client-total chart ──
+  // Special case: when a client's ONLY project is cumulative (or an investment
+  // project), the top chart uses the cumulative running-total view rather than
+  // monthly bars — otherwise a lone fixed-fee project reads as bare monthly hours
+  // with no budget to measure against.
+  const singleCum    = single && single.tracking === 'cumulative';
+  const singleInvest = single && isInvest(single);
+  let cfg, mainNote;
+  if (singleCum || singleInvest) {
+    let cn = 0, cg = 0, ca = 0, cb = 0, ci = 0, ct = 0;
+    const citems = S.map(m => {
+      cn += m.nz_hours || 0; cg += m.global_hours || 0; ca += m.automated_hours || 0;
+      cb += m.non_billable_hours || 0; ci += m.internal_auto_hours || 0; ct += m.internal_transition_hours || 0;
+      return { nz: cn, global: cg, auto: ca, nonbill: cb, internal: ci, internal_transition: ct };
+    });
+    cfg = makeBudgetUsageConfig(labels, citems);
+    cfg.data.datasets = cfg.data.datasets.filter(d => d.stack !== 'budget');   // no monthly budget bars
+    if (singleCum) {
+      cfg.data.datasets.push({
+        type: 'line', label: 'Total budget', data: labels.map(() => single.total_budget || 0),
+        borderColor: '#33373D', borderWidth: 2, borderDash: [6, 4], pointRadius: 0, fill: false,
+      });
+      mainNote = `<div class="ch-note ch-cum-note">📈 <b>Cumulative project</b> — bars show <b>hours used to date</b> building up month by month; the dashed line is the <b>total budget</b> for the whole project. Where the bars reach the line, the budget is spent.</div>`;
+    } else {
+      mainNote = `<div class="ch-note ch-cum-note ch-invest-note">🛠 <b>Investment project</b> (our cost / our clock, not billed) — bars show <b>hours invested to date</b>, building up month by month. No client budget here.</div>`;
+    }
+  } else {
+    const items = S.map(m => ({
+      base: m.budget_hours, additional: m.additional_hours,
+      nz: m.nz_hours, global: m.global_hours, auto: m.automated_hours,
+      nonbill: m.non_billable_hours, internal: m.internal_auto_hours, internal_transition: m.internal_transition_hours,
+    }));
+    cfg = makeBudgetUsageConfig(labels, items);
+    // 3rd bar: billable hours per chargeable project — when there's >1.
+    if (normalProjects.length > 1) {
+      normalProjects.forEach((p, idx) => {
+        cfg.data.datasets.push({
+          label: tr_(stripPrefix(p.project_name), 22),
+          data: S.map(m => { const f = (m.projects || []).find(x => String(x.project_id) === String(p.project_id)); return f ? +(f.hours || 0).toFixed(2) : 0; }),
+          backgroundColor: CH.projPalette[idx % CH.projPalette.length],
+          stack: 'projects',
+        });
+      });
+    }
+    mainNote = `<div class="ch-note">Bars per month: <b>Budget</b> (+ additional) · <b>Usage</b> (NZ / Global / AutoMate / Non-billable / Automation Setup / Internal)${normalProjects.length > 1 ? ' · <b>Projects</b> (billable hours per project)' : ''}.</div>`;
+  }
+
+  // ── Scaffold: client-total chart, then per-project / investment charts ──
+  const titleTag = singleCum ? ' <span class="ch-cum-tag">cumulative</span>' : (singleInvest ? ' <span class="ch-cum-tag invest">investment</span>' : '');
+  let html = `<div class="ch-block-title">${single ? esc(stripPrefix(single.project_name)) + titleTag + (single.note ? ` <span class="note-ico" title="${esc(single.note)}">🗒️</span>` : '') : esc(data.client_name || 'Client') + ' — all projects'}</div>`
+    + `<div class="ph-chart-wrap ph-chart-tall"><canvas id="chHistCanvas"></canvas></div>`
+    + mainNote;
+
+  const perProj = [];
+  if (showBreakdown) {
+    html += `<div class="ch-proj-sub">Per-project breakdown</div>`;
+    normalProjects.forEach((p, idx) => {
+      const cid = 'chProj_' + idx;
+      const isCum = p.tracking === 'cumulative';
+      html += `<div class="ch-proj-block">`
+        + `<div class="ch-block-title">${esc(stripPrefix(p.project_name))}${isCum ? ' <span class="ch-cum-tag">cumulative</span>' : ''}${p.note ? ` <span class="note-ico" title="${esc(p.note)}">🗒️</span>` : ''}</div>`
+        + (isCum
+            ? `<div class="ch-note ch-cum-note">📈 <b>Cumulative project</b> — read differently to the other charts: bars show <b>hours used to date</b> building up month by month, and the dashed line is the <b>total budget</b> for the whole project. Where the bars reach the line, the budget is spent.</div>`
+            : '')
+        + `<div class="ph-chart-wrap"><canvas id="${cid}"></canvas></div>`
+        + `</div>`;
+      perProj.push({ cid, p, isCum });
+    });
+
+    // Combined cumulative investment chart (Automation Setup + Internal Transition).
+    if (hasInvestment) {
+      html += `<div class="ch-proj-block">`
+        + `<div class="ch-block-title">Our Investment <span class="ch-cum-tag invest">non-chargeable</span></div>`
+        + `<div class="ch-note ch-cum-note ch-invest-note">🛠 <b>Our investment in this client</b> (our cost / our clock, not billed) — <b>Automation Setup</b> builds and <b>Internal Transition</b> hand-over, shown <b>cumulatively</b>. There's no client budget here; this is time we choose to invest for our own benefit.</div>`
+        + `<div class="ph-chart-wrap"><canvas id="chInvest"></canvas></div>`
+        + `</div>`;
+    }
+  }
+
+  area.innerHTML = html;
+  destroyPhCharts();
+  state.phChartInstances.push(new Chart(document.getElementById('chHistCanvas').getContext('2d'), cfg));
+
+  // ── Per-project charts ──
+  perProj.forEach(({ cid, p, isCum }) => {
+    const el = document.getElementById(cid);
+    if (!el) return;
+    let pcfg;
+    if (isCum) {
+      // Running cumulative usage (builds up) + a flat total-budget line.
+      let cn = 0, cg = 0, ca = 0, cb = 0, ci = 0, ct = 0;
+      const citems = S.map(m => {
+        const f = (m.projects || []).find(x => String(x.project_id) === String(p.project_id)) || {};
+        cn += f.nz || 0; cg += f.global || 0; ca += f.automated || 0; cb += f.nonbill || 0; ci += f.internal_auto || 0; ct += f.internal_transition || 0;
+        return { nz: cn, global: cg, auto: ca, nonbill: cb, internal: ci, internal_transition: ct };
+      });
+      pcfg = makeBudgetUsageConfig(labels, citems);
+      pcfg.data.datasets = pcfg.data.datasets.filter(d => d.stack !== 'budget');   // no monthly budget bars
+      pcfg.data.datasets.push({
+        type: 'line', label: 'Total budget', data: labels.map(() => p.total_budget || 0),
+        borderColor: '#33373D', borderWidth: 2, borderDash: [6, 4], pointRadius: 0, fill: false,
+      });
+    } else {
+      // Monthly budget vs monthly usage for this one project.
+      const pitems = S.map(m => {
+        const f = (m.projects || []).find(x => String(x.project_id) === String(p.project_id)) || {};
+        return { base: f.budget_hours || 0, additional: f.additional_hours || 0,
+          nz: f.nz || 0, global: f.global || 0, auto: f.automated || 0,
+          nonbill: f.nonbill || 0, internal: f.internal_auto || 0, internal_transition: f.internal_transition || 0 };
+      });
+      pcfg = makeBudgetUsageConfig(labels, pitems);
+    }
+    state.phChartInstances.push(new Chart(el.getContext('2d'), pcfg));
+  });
+
+  // ── Combined investment chart (cumulative Automation Setup + Internal Transition) ──
+  if (showBreakdown && hasInvestment) {
+    const el = document.getElementById('chInvest');
+    if (el) {
+      let caa = 0, cit = 0;
+      const invItems = S.map(m => { caa += m.internal_auto_hours || 0; cit += m.internal_transition_hours || 0; return { autoSetup: caa, intTrans: cit }; });
+      const invDs = (label, key, color) => ({ label, data: invItems.map(i => +(i[key] || 0).toFixed(2)), backgroundColor: color, stack: 'invest' });
+      const invCfg = {
+        type: 'bar',
+        data: { labels, datasets: [
+          invDs('Automation Setup', 'autoSetup', CH.internal),
+          invDs('Internal Transition', 'intTrans', CH.internalTransition),
+        ] },
+        options: chartBaseOptions_('Cumulative hours', 60, 13),
+      };
+      state.phChartInstances.push(new Chart(el.getContext('2d'), invCfg));
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RENDER: TEAM UTILISATION
+// ═══════════════════════════════════════════════════════════════════════════
+// Team Utilisation chart colours (brand-aligned, distinct per bucket).
+const TU = {
+  billable: '#EB1F57', internal: '#6B8483', automationCat: '#46B29D', leave: '#F6A57A', leave_wo_pay: '#B5651D',
+  tech: '#E8853A', nonbill: '#E8C13A', public_holiday: '#8B6CB3', unrecorded: '#C9CDD2',
+  personal: '#EB1F57', delegated: '#6B8483', automated: '#8B6CB3',
+  lineProd: '#CD0139', lineDeleg: '#E8853A', lineBillable: '#CD0139',
+};
+
+let tuView = 'month';        // 'month' | 'trend' | 'compare'
+let tuTrendMember = '';      // remembered member email for the trend view
+function setTuView(v) { tuView = v; renderTeamUtil(); }
+
+// Inline plugin: draw each LINE data point's value (the % overlays) above the point.
+const tuLineLabels = {
+  id: 'tuLineLabels',
+  afterDatasetsDraw(chart) {
+    const ctx = chart.ctx;
+    chart.data.datasets.forEach((ds, i) => {
+      if (ds.type !== 'line') return;
+      const meta = chart.getDatasetMeta(i);
+      if (meta.hidden) return;
+      meta.data.forEach((pt, idx) => {
+        const v = ds.data[idx];
+        if (v == null) return;
+        ctx.save();
+        ctx.font = '800 14px Mulish, sans-serif';
+        ctx.fillStyle = ds.borderColor || '#333';
+        ctx.textAlign = 'center';
+        ctx.fillText(Math.round(v) + '%', pt.x, pt.y - 8);
+        ctx.restore();
+      });
+    });
+  },
+};
+
+function destroyTuCharts() {
+  (state.tuChartInstances || []).forEach(c => { try { c.destroy(); } catch (e) {} });
+  state.tuChartInstances = [];
+}
+function shortName_(n) { const p = String(n || '').trim().split(/\s+/); return p[0] + (p[1] ? ' ' + p[1][0] : ''); }
+
+// Display order within charts/tables: regular members first, then NZ Contractors,
+// then Global Contractors, then Automation last.
+function tuRank_(m) {
+  const t = m.team_label;
+  if (t === 'Automation') return 3;
+  if (t === 'Global Contractor') return 2;
+  if (t === 'NZ Contractor' || t === 'Contractors') return 1;   // legacy "Contractors" = NZ Contractor
+  return 0;
+}
+function tuSort_(members) {
+  return members.slice().sort((a, b) => (tuRank_(a) - tuRank_(b)) || (a.user_name || '').localeCompare(b.user_name || ''));
+}
+
+// Build chart "items" from a row (works for a per-member month row OR a per-month
+// history/comparison series row — field names match across all three endpoints).
+function tuUtilItem_(r, label) {
+  return { label, billable: r.billable_h || 0, internal: r.internal_h || 0, automation: r.automation_setup_h || 0,
+    leave: r.leave_h || 0, leave_wo_pay: r.leave_wo_pay_h || 0, tech: r.tech_issues_h || 0, nonbill: r.non_billable_h || 0,
+    public_holiday: r.public_holiday_h || 0, unrecorded: r.unrecorded_h || 0, billable_pct: r.billable_pct };
+}
+function tuDelegItem_(r, label) {
+  return { label, personal: r.personal_billable_h || 0, delegated: r.delegate_h || 0, automated: r.automated_h || 0,
+    productivity: r.total_productivity_pct, delegated_pct: r.pct_delegated };
+}
+
+// Mixed stacked-bar + overlay-line chart. kind 'nz' → Personal/Delegated/Automated
+// with Productivity % and % Delegated lines (0–200%); kind 'global' → utilisation
+// buckets with a Billable % line (0–100%).
+function makeTuChartConfig(kind, labels, items) {
+  const bar  = (label, key, color) => ({ type: 'bar', label, data: items.map(i => +(i[key] || 0).toFixed(2)), backgroundColor: color, stack: 's', yAxisID: 'y', order: 2 });
+  const line = (label, key, color) => ({ type: 'line', label, data: items.map(i => i[key] == null ? null : +i[key]), borderColor: color, backgroundColor: color, yAxisID: 'y1', tension: .3, pointRadius: 3, borderWidth: 2, fill: false, order: 0, spanGaps: true });
+
+  let datasets, y1max;
+  if (kind === 'nz') {
+    datasets = [
+      bar('Personal', 'personal', TU.personal), bar('Delegated', 'delegated', TU.delegated), bar('Automated', 'automated', TU.automated),
+      line('Productivity %', 'productivity', TU.lineProd), line('% Delegated', 'delegated_pct', TU.lineDeleg),
+    ];
+    y1max = 200;
+  } else {
+    datasets = [
+      bar('Billable', 'billable', TU.billable), bar('Internal', 'internal', TU.internal),
+      bar('Automation', 'automation', TU.automationCat), bar('Tech Issues', 'tech', TU.tech),
+      bar('Non-billable', 'nonbill', TU.nonbill), bar('Leave', 'leave', TU.leave),
+      bar('Public Holiday', 'public_holiday', TU.public_holiday), bar('Leave w/o Pay', 'leave_wo_pay', TU.leave_wo_pay),
+      bar('Unrecorded', 'unrecorded', TU.unrecorded),
+      line('Billable %', 'billable_pct', TU.lineBillable),
+    ];
+    y1max = 100;
+  }
+  return {
+    type: 'bar',
+    data: { labels, datasets },
+    plugins: [tuLineLabels],
+    options: {
+      responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      scales: {
+        x:  { stacked: true, ticks: { maxRotation: 60, minRotation: 0, font: { size: 11 } } },
+        y:  { stacked: true, beginAtZero: true, title: { display: true, text: 'Hours' } },
+        y1: { position: 'right', beginAtZero: true, suggestedMax: y1max, grid: { drawOnChartArea: false }, title: { display: true, text: '%' } },
+      },
+      plugins: {
+        legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
+        tooltip: { callbacks: { label: (c) => c.dataset.type === 'line'
+          ? `${c.dataset.label}: ${c.parsed.y == null ? '–' : Math.round(c.parsed.y) + '%'}`
+          : `${c.dataset.label}: ${(+c.parsed.y).toFixed(1)}h` } },
+      },
+    },
+  };
+}
+function createTuChart(cfg) {
+  const el = document.getElementById(cfg.id);
+  if (!el) return;
+  state.tuChartInstances.push(new Chart(el.getContext('2d'), makeTuChartConfig(cfg.kind, cfg.labels, cfg.items)));
+}
+function buildTuCard_(title, tagClass, tagText, meta, chartId, thead, tbody) {
+  return `
+    <div class="card ph-section">
+      <div class="ph-section-head">
+        <span class="ph-title">${title}</span>
+        <span class="ph-tag ${tagClass}">${tagText}</span>
+        <span class="ph-meta">${meta}</span>
+      </div>
+      <div class="ph-chart-row"><div class="ph-chart-wrap" style="height:420px"><canvas id="${chartId}"></canvas></div></div>
+      <div class="table-wrap"><table class="ph-table"><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>
+    </div>`;
+}
+
+// Utilisation section (used for both NZ and Global teams): stacked util chart +
+// table. Works on month rows or history series (field names match).
+function buildTuUtilSection(title, members, charts, chartId) {
+  members = tuSort_(members);
+  const items = members.map(m => tuUtilItem_(m, shortName_(m.user_name)));
+  charts.push({ id: chartId, kind: 'global', labels: items.map(i => i.label), items });
+  const avg = members.length ? Math.round(members.reduce((s, m) => s + (m.billable_pct || 0), 0) / members.length) : 0;
+  const thead = `<tr><th>Team Member</th><th class="num">Cap.</th><th class="num">Billable</th><th class="num">Internal</th><th class="num">Automation</th><th class="num">Tech</th><th class="num">Non-Bill</th><th class="num">Leave</th><th class="num">Pub Hol</th><th class="num">L w/o Pay</th><th class="num">Unrec.</th><th>Billable %</th></tr>`;
+  const tbody = members.map(m => {
+    const pct = m.billable_pct;
+    const cls = pct == null ? 'none' : pct >= 70 ? 'ok' : pct >= 50 ? 'warn' : 'over';
+    return `<tr>
+      <td><strong>${esc(m.user_name)}</strong><div class="text-sm text-muted">${esc(m.team_label || '')}${m.is_contractor ? ' · contractor' : ''}</div></td>
+      <td class="num">${m.capacity_to_date == null ? '–' : fmt1(m.capacity_to_date)}</td>
+      <td class="num">${fmt1(m.billable_h)}</td>
+      <td class="num">${fmt1(m.internal_h)}</td>
+      <td class="num">${fmt1(m.automation_setup_h)}</td>
+      <td class="num">${fmt1(m.tech_issues_h)}</td>
+      <td class="num nonbill">${fmt1(m.non_billable_h)}</td>
+      <td class="num">${fmt1(m.leave_h)}</td>
+      <td class="num">${fmt1(m.public_holiday_h)}</td>
+      <td class="num">${fmt1(m.leave_wo_pay_h)}</td>
+      <td class="num">${fmt1(m.unrecorded_h)}</td>
+      <td><div class="prog-wrap"><div class="prog-bar"><div class="prog-fill ${cls === 'none' ? 'ok' : cls}" style="width:${Math.min(pct || 0, 100)}%"></div></div><span class="prog-pct">${pct == null ? '–' : pct + '%'}</span></div></td>
+    </tr>`;
+  }).join('');
+  return buildTuCard_(title, 'tag-monthly', 'Billable + breakdown',
+    `${members.length} member${members.length > 1 ? 's' : ''} · avg billable ${avg}%`, chartId, thead, tbody);
+}
+
+// NZ delegation/productivity section: Personal/Delegated/Automated stacks + lines.
+function buildTuDelegationSection(members, charts) {
+  members = tuSort_(members);
+  const items = members.map(m => tuDelegItem_(m, shortName_(m.user_name)));
+  charts.push({ id: 'tuNzDelegChart', kind: 'nz', labels: items.map(i => i.label), items });
+  const avg = members.length ? Math.round(members.reduce((s, m) => s + (m.total_productivity_pct || 0), 0) / members.length) : 0;
+  const thead = `<tr><th>Team Member</th><th class="num">Personal</th><th class="num">Delegated</th><th class="num">Automated</th><th class="num">Prod %</th><th class="num">Total Prod %</th><th class="num">% Delegated</th></tr>`;
+  const tbody = members.map(m => `<tr>
+      <td><strong>${esc(m.user_name)}</strong><div class="text-sm text-muted">${esc(m.team_label || '')}</div></td>
+      <td class="num">${fmt1(m.personal_billable_h)}</td>
+      <td class="num">${fmt1(m.delegate_h)}</td>
+      <td class="num">${fmt1(m.automated_h)}</td>
+      <td class="num">${m.productivity_pct == null ? '–' : m.productivity_pct + '%'}</td>
+      <td class="num"><b>${m.total_productivity_pct == null ? '–' : m.total_productivity_pct + '%'}</b></td>
+      <td class="num">${m.pct_delegated == null ? '–' : m.pct_delegated + '%'}</td>
+    </tr>`).join('');
+  return buildTuCard_('NZ Team — Delegation &amp; Productivity', 'tag-cumulative', 'Personal · Delegated · Automated',
+    `${members.length} member${members.length > 1 ? 's' : ''} · avg total productivity ${avg}%`, 'tuNzDelegChart', thead, tbody);
+}
+
+function renderTeamUtil() {
+  const panel = document.getElementById('panelTeamUtil');
+  if (!state.teamUtil) { panel.innerHTML = '<div class="loading"><div class="loading-spinner"></div></div>'; return; }
+  destroyTuCharts();
+
+  const toggle = `
+    <div class="ph-view-toggle">
+      <button class="ph-vbtn ${tuView === 'month' ? 'active' : ''}" onclick="setTuView('month')">This Month</button>
+      <button class="ph-vbtn ${tuView === 'trend' ? 'active' : ''}" onclick="setTuView('trend')">Individual History</button>
+      <button class="ph-vbtn ${tuView === 'compare' ? 'active' : ''}" onclick="setTuView('compare')">Team Comparison</button>
+    </div>`;
+
+  if (tuView === 'trend')   { panel.innerHTML = toggle + renderTuTrendShell();   initTuTrend();   return; }
+  if (tuView === 'compare') { panel.innerHTML = toggle + renderTuCompareShell(); initTuCompare(); return; }
+
+  // Everyone sees all members in This Month (like Leadership); the Team filter
+  // (admin-only) narrows by team when set.
+  let rows = state.teamUtil.rows.slice();
+  const teamFilter = getTeamFilter();
+  if (teamFilter) rows = rows.filter(r => r.team_label === teamFilter);
+
+  if (!rows.length) { panel.innerHTML = toggle + '<div class="empty">No utilisation data for this period.</div>'; return; }
+
+  // NZ-side members get a utilisation chart AND a delegation chart; Global-side
+  // get the utilisation chart.
+  const nz = rows.filter(r => r.has_delegation_data);
+  const gl = rows.filter(r => !r.has_delegation_data);
+
+  const charts = [];
+  let html = '';
+  if (nz.length) html += buildTuUtilSection('NZ Team — Utilisation', nz, charts, 'tuNzUtilChart') + buildTuDelegationSection(nz, charts);
+  if (gl.length) html += buildTuUtilSection('Global Team — Utilisation', gl, charts, 'tuGlobalUtilChart');
+
+  panel.innerHTML = toggle + (html || '<div class="empty">No utilisation data.</div>');
+  charts.forEach(createTuChart);
+}
+
+// ── Member Trend (individual, last N months) ───────────────────────────────
+function renderTuTrendShell() {
+  return `
+    <div class="card">
+      <div class="ph-section-head"><span class="ph-title">Individual History</span><span class="ph-meta">month-by-month utilisation (and delegation for NZ)</span></div>
+      <div class="ch-controls">
+        <div class="ctrl-group"><label>Team member</label><select id="tuMember" onchange="onTuTrendChange()"><option value="">Loading…</option></select></div>
+        <div class="ctrl-group" style="max-width:180px"><label>Period</label><select id="tuMonths" onchange="onTuTrendChange()"><option value="6">Last 6 months</option><option value="12" selected>Last 12 months</option></select></div>
+      </div>
+      <div id="tuTrendArea" style="padding:8px 20px 20px"><div class="empty">Select a team member to see their history.</div></div>
+    </div>`;
+}
+function initTuTrend() {
+  const sel = document.getElementById('tuMember');
+  if (!sel) return;
+  const byTeam = {};
+  (state.users || []).forEach(u => { const t = u.team_label || 'Other'; (byTeam[t] = byTeam[t] || []).push(u); });
+  let html = '<option value="">— Select a team member —</option>';
+  Object.keys(byTeam).sort().forEach(t => {
+    const ms = byTeam[t].sort((a, b) => a.name.localeCompare(b.name));
+    html += `<optgroup label="${t}">` + ms.map(u => `<option value="${u.email}">${esc(u.name)}</option>`).join('') + '</optgroup>';
+  });
+  sel.innerHTML = html;
+  if (!tuTrendMember) tuTrendMember = state.currentUser.email;   // preload self
+  sel.value = tuTrendMember;
+  if (tuTrendMember) onTuTrendChange();
+}
+function onTuTrendChange() {
+  tuTrendMember = document.getElementById('tuMember').value;
+  const months = document.getElementById('tuMonths').value || '12';
+  const area = document.getElementById('tuTrendArea');
+  if (!tuTrendMember) { area.innerHTML = '<div class="empty">Select a team member to see their history.</div>'; return; }
+  loadTuTrend(tuTrendMember, months);
+}
+async function loadTuTrend(email, months) {
+  const area = document.getElementById('tuTrendArea');
+  area.innerHTML = '<div class="loading"><div class="loading-spinner"></div></div>';
+  try { renderTuTrend(await api('getTeamUtilisationHistory', { email, months })); }
+  catch (e) { area.innerHTML = '<div class="empty">Could not load history.</div>'; }
+}
+function renderTuTrend(data) {
+  const area = document.getElementById('tuTrendArea');
+  const S = data.series || [];
+  if (!S.length) { area.innerHTML = '<div class="empty">No history for this member in the selected period.</div>'; return; }
+  const labels = S.map(s => formatMonth(s.period));
+  // Delegation chart is NZ-side only — Global VA/Creative/Contractor & Automation never get it.
+  const GLOBAL_LABELS = ['Global VA', 'Global Creative', 'Global Contractor', 'Automation'];
+  const nzSide = !GLOBAL_LABELS.includes(data.team_label) && S.some(s => s.has_delegation_data);
+  let html = `<div class="tu-trend-title">${esc(data.user_name || '')} · ${esc(data.team_label || '')}</div>`;
+  html += `<div class="ph-chart-row"><div class="ph-chart-wrap" style="height:400px"><canvas id="tuTrendUtil"></canvas></div></div>`;
+  if (nzSide) html += `<div class="ph-sub">Delegation over time</div><div class="ph-chart-row"><div class="ph-chart-wrap" style="height:400px"><canvas id="tuTrendDeleg"></canvas></div></div>`;
+  area.innerHTML = html;
+  destroyTuCharts();
+  state.tuChartInstances.push(new Chart(document.getElementById('tuTrendUtil').getContext('2d'),
+    makeTuChartConfig('global', labels, S.map(s => tuUtilItem_(s, formatMonth(s.period))))));
+  if (nzSide) state.tuChartInstances.push(new Chart(document.getElementById('tuTrendDeleg').getContext('2d'),
+    makeTuChartConfig('nz', labels, S.map(s => tuDelegItem_(s, formatMonth(s.period))))));
+}
+
+// ── Team Comparison (multi-select teams) ───────────────────────────────────
+function renderTuCompareShell() {
+  const teams = [...new Set((state.users || []).map(u => u.team_label).filter(Boolean))].sort();
+  const checks = teams.map(t => `<label class="tu-check"><input type="checkbox" value="${esc(t)}" onchange="onTuCompareChange()"> ${esc(t)}</label>`).join('');
+  return `
+    <div class="card">
+      <div class="ph-section-head"><span class="ph-title">Team Comparison</span><span class="ph-meta">utilisation by team, month-by-month</span></div>
+      <div class="ch-controls" style="align-items:flex-start">
+        <div class="ctrl-group" style="min-width:auto"><label>Teams (multi-select)</label><div class="tu-team-checks">${checks}</div></div>
+        <div class="ctrl-group" style="max-width:180px"><label>Period</label><select id="tuCmpMonths" onchange="onTuCompareChange()"><option value="6">Last 6 months</option><option value="12" selected>Last 12 months</option></select></div>
+      </div>
+      <div id="tuCompareArea" style="padding:8px 20px 20px"><div class="empty">Select one or more teams to compare.</div></div>
+    </div>`;
+}
+function initTuCompare() { /* checkboxes are inline; nothing to preload */ }
+function onTuCompareChange() {
+  const checks = Array.from(document.querySelectorAll('.tu-team-checks input:checked')).map(c => c.value);
+  const months = document.getElementById('tuCmpMonths').value || '12';
+  const area = document.getElementById('tuCompareArea');
+  if (!checks.length) { area.innerHTML = '<div class="empty">Select one or more teams to compare.</div>'; return; }
+  loadTuCompare(checks.join(','), months);
+}
+async function loadTuCompare(teamsCsv, months) {
+  const area = document.getElementById('tuCompareArea');
+  area.innerHTML = '<div class="loading"><div class="loading-spinner"></div></div>';
+  try { renderTuCompare(await api('getTeamComparisonHistory', { teams: teamsCsv, months })); }
+  catch (e) { area.innerHTML = '<div class="empty">Could not load comparison.</div>'; }
+}
+function renderTuCompare(data) {
+  const area = document.getElementById('tuCompareArea');
+  const td = (data.teams_data || []).filter(t => (t.series || []).length);
+  if (!td.length) { area.innerHTML = '<div class="empty">No data for the selected teams.</div>'; return; }
+  const charts = [];
+  let html = '';
+  td.forEach((t, idx) => {
+    const id = `tuCmp_${idx}`;
+    const items = t.series.map(s => tuUtilItem_(s, formatMonth(s.period)));
+    charts.push({ id, items, labels: items.map(i => i.label) });
+    html += `<div class="tu-trend-title">${esc(t.team_label)}</div><div class="ph-chart-row"><div class="ph-chart-wrap" style="height:360px"><canvas id="${id}"></canvas></div></div>`;
+  });
+  area.innerHTML = html;
+  destroyTuCharts();
+  charts.forEach(c => state.tuChartInstances.push(new Chart(document.getElementById(c.id).getContext('2d'), makeTuChartConfig('global', c.labels, c.items))));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RENDER: CLIENT BREAKDOWN
+// ═══════════════════════════════════════════════════════════════════════════
+function renderClientBreakdown() {
+  const panel = document.getElementById('panelClientBreakdown');
+  if (!state.clientBreakdown) { panel.innerHTML = '<div class="loading"><div class="loading-spinner"></div></div>'; return; }
+
+  const data = state.clientBreakdown;
+  const clients = data.clients || [];
+  const totalHours = clients.reduce((s, c) => s + c.total_hours, 0);
+  const overProjects = clients.flatMap(c => c.projects).filter(p => p.is_over_budget).length;
+
+  panel.innerHTML = `
+    <div class="kpi-row">
+      <div class="kpi">
+        <div class="kpi-label">Total Hours</div>
+        <div class="kpi-value">${totalHours.toFixed(1)}</div>
+        <div class="kpi-sub">this month</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Active Clients</div>
+        <div class="kpi-value">${clients.length}</div>
+        <div class="kpi-sub">with hours this month</div>
+      </div>
+      <div class="kpi ${overProjects > 0 ? 'danger' : 'success'}">
+        <div class="kpi-label">Over Budget</div>
+        <div class="kpi-value">${overProjects}</div>
+        <div class="kpi-sub">projects</div>
+      </div>
+    </div>
+
+    <div class="grid-2" style="margin-bottom:16px">
+      <div class="card">
+        <div class="card-title">Client Attention List</div>
+        <div id="clientAttentionList" style="max-height:260px; overflow-y:auto;"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Budget Status — Top Projects</div>
+        <div class="chart-wrap"><canvas id="budgetBarChart"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📂 Client & Project Breakdown</div>
+      ${clients.map((c, ci) => `
+        <div style="border:1px solid var(--border); border-radius:8px; margin-bottom:8px; overflow:hidden;">
+          <div class="accordion-header" id="acc_h_${ci}" onclick="toggleAccordion(${ci})">
+            <div style="display:flex; align-items:center; gap:12px;">
+              <strong>${c.client_name}</strong>
+              <span class="badge badge-none">${c.total_hours.toFixed(1)}h</span>
+              <span class="text-sm text-muted">${c.projects.length} project${c.projects.length!==1?'s':''}</span>
+              ${c.projects.some(p=>p.is_over_budget) ? '<span class="badge badge-over">Over budget</span>' : ''}
+            </div>
+            <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </div>
+          <div class="accordion-body" id="acc_b_${ci}">
+            <div class="table-wrap">
+              <table>
+                <thead><tr>
+                  <th>Project</th>
+                  <th>Owner</th>
+                  <th>Type</th>
+                  <th class="num">Budget</th>
+                  <th class="num">Used</th>
+                  <th class="num">Remaining</th>
+                  <th>Progress</th>
+                </tr></thead>
+                <tbody>
+                  ${c.projects.map(p => {
+                    const pct = p.pct_used ?? 0;
+                    const cls = p.is_over_budget ? 'over' : pct >= 80 ? 'warn' : 'ok';
+                    return `<tr>
+                      <td>${p.project_name}</td>
+                      <td class="text-sm text-muted">${(p.owner_email||'').split('@')[0]||'–'}</td>
+                      <td><span class="badge ${p.agreement_type?'badge-none':'badge-none'}">${p.agreement_type||'–'}</span></td>
+                      <td class="num">${p.budget_hours>0?p.budget_hours+'h':'–'}</td>
+                      <td class="num font-mono">${p.hours_used}h</td>
+                      <td class="num" style="${p.remaining_hours<0?'color:var(--danger)':p.remaining_hours!==null&&p.remaining_hours<2?'color:var(--warning)':''}">${p.remaining_hours!==null?(p.remaining_hours>0?'+':'')+p.remaining_hours+'h':'–'}</td>
+                      <td>
+                        ${p.budget_hours > 0 ? `
+                        <div class="prog-wrap">
+                          <div class="prog-bar"><div class="prog-fill ${cls}" style="width:${Math.min(pct,100)}%"></div></div>
+                          <span class="prog-pct">${pct}%</span>
+                        </div>` : '<span class="text-muted text-sm">No budget set</span>'}
+                      </td>
+                    </tr>`;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+
+  // Draw panels
+  drawClientAttentionList(clients);
+  drawBudgetBarChart(clients);
+
+  // Auto-expand first client
+  if (clients.length) toggleAccordion(0);
+}
+
+function toggleAccordion(i) {
+  const header = document.getElementById(`acc_h_${i}`);
+  const body   = document.getElementById(`acc_b_${i}`);
+  if (!header || !body) return;
+  header.classList.toggle('open');
+  body.classList.toggle('open');
+}
+
+function drawClientAttentionList(clients) {
+  const el = document.getElementById('clientAttentionList');
+  if (!el) return;
+
+  // Aggregate worst-case pct per client (highest % used across its projects)
+  const rows = clients.map(c => {
+    const budgetedProjects = c.projects.filter(p => p.budget_hours > 0);
+    const worstPct = budgetedProjects.length
+      ? Math.max(...budgetedProjects.map(p => p.pct_used || 0))
+      : null;
+    const isOver = c.projects.some(p => p.is_over_budget);
+    const overCount = c.projects.filter(p => p.is_over_budget).length;
+    const warnCount = c.projects.filter(p => !p.is_over_budget && (p.pct_used||0) >= 80).length;
+    return { ...c, worstPct, isOver, overCount, warnCount };
+  });
+
+  // Sort: over budget first → at risk (≥80%) → on track → no budget
+  rows.sort((a, b) => {
+    const priority = r => r.isOver ? 0 : (r.worstPct >= 80 ? 1 : r.worstPct !== null ? 2 : 3);
+    if (priority(a) !== priority(b)) return priority(a) - priority(b);
+    return (b.worstPct || 0) - (a.worstPct || 0);
+  });
+
+  el.innerHTML = rows.map(c => {
+    const pct = c.worstPct;
+    const barColor = c.isOver ? 'var(--danger)' : pct >= 80 ? 'var(--warning)' : 'var(--success)';
+    const labelColor = c.isOver ? 'var(--danger)' : pct >= 80 ? 'var(--warning)' : 'var(--success)';
+    const statusText = c.isOver
+      ? `${c.overCount} over budget`
+      : pct >= 80
+        ? `${c.warnCount ? c.warnCount + ' at risk' : 'Approaching'}`
+        : pct !== null
+          ? 'On track'
+          : 'No budget set';
+
+    return `
+      <div style="display:flex; align-items:center; gap:10px; padding:8px 4px; border-bottom:1px solid var(--border);">
+        <div style="flex:1; min-width:0;">
+          <div style="font-weight:500; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${c.client_name}</div>
+          <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${c.total_hours.toFixed(1)}h · ${c.projects.length} project${c.projects.length!==1?'s':''}</div>
+        </div>
+        <div style="width:80px; flex-shrink:0;">
+          ${pct !== null ? `
+          <div style="height:4px; background:var(--border); border-radius:2px; margin-bottom:3px;">
+            <div style="height:4px; border-radius:2px; background:${barColor}; width:${Math.min(pct,100)}%;"></div>
+          </div>` : ''}
+          <div style="font-size:11px; text-align:right; color:${labelColor}; font-weight:500;">${pct !== null ? pct + '%' : '–'}</div>
+        </div>
+        <div style="font-size:11px; width:90px; text-align:right; color:${labelColor}; flex-shrink:0;">${statusText}</div>
+      </div>`;
+  }).join('');
+}
+
+function drawBudgetBarChart(clients) {
+  const ctx = document.getElementById('budgetBarChart');
+  if (!ctx) return;
+  if (state.charts.budgetBar) state.charts.budgetBar.destroy();
+
+  const projects = clients.flatMap(c => c.projects)
+    .filter(p => p.budget_hours > 0)
+    .sort((a, b) => (b.pct_used||0) - (a.pct_used||0))
+    .slice(0, 10);
+
+  state.charts.budgetBar = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: projects.map(p => p.project_name.substring(0, 20)),
+      datasets: [
+        { label: 'Hours Used',   data: projects.map(p => p.hours_used),   backgroundColor: projects.map(p => p.is_over_budget ? '#E05C5C' : p.pct_used >= 80 ? '#F0A500' : '#4CAF82') },
+        { label: 'Budget',       data: projects.map(p => p.budget_hours), backgroundColor: 'rgba(0,0,0,.08)' },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+      plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } },
+      scales: { x: { title: { display: true, text: 'Hours' } } },
+    },
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RENDER: COMMISSION (PIN-protected)
+// ═══════════════════════════════════════════════════════════════════════════
+function renderCommission() {
+  const panel = document.getElementById('panelCommission');
+  const role = (state.currentUser.role_label || '').toLowerCase();
+  const team = (state.currentUser.team_label || '').toLowerCase();
+  const isAdmin = role === 'admin' || team === 'leadership';
+  if (isAdmin) renderCommissionLeadership(panel);
+  else         renderCommissionIndividual(panel);
+}
+
+// ── Individual: current tier + bar-in-cell history pivot (no $, no PIN) ──────
+function renderCommissionIndividual(panel) {
+  if (!state.commissionHistory) {
+    panel.innerHTML = '<div class="loading"><div class="loading-spinner"></div></div>';
+    loadCommissionHistory();
+    return;
+  }
+  const data    = state.commissionHistory;
+  const ladder  = data.ladder || [];
+  const cur     = data.current || {};
+  const history = data.history || [];
+  if (!ladder.length && !history.length) { panel.innerHTML = '<div class="empty">No commission package found for you.</div>'; return; }
+
+  // ── Month-to-date block: live tier on the current package ladder ──
+  let mtdBlock = '';
+  if (ladder.length) {
+    const nT = ladder.length;
+    const cols = `<colgroup><col style="width:120px">${ladder.map(() => '<col>').join('')}</colgroup>`;
+    const headTiers = ladder.map(t => `<th class="num">${esc(t.label)}</th>`).join('');
+    const pct = cur.tier_index >= 0 ? ((cur.tier_index + 1) / nT) * 100 : 0;
+    mtdBlock = `
+      <div class="kpi-row">
+        <div class="kpi brand"><div class="kpi-label">Tracking this month</div><div class="kpi-value">${cur.tier ? esc(cur.tier) : '–'}</div><div class="kpi-sub">${esc(data.package || '')}${cur.period ? ' · ' + formatMonth(cur.period) + ' (to date)' : ''}</div></div>
+      </div>
+      <div class="card ph-section">
+        <div class="ph-section-head"><span class="ph-title">This Month — Tracking To Date</span><span class="ph-meta">live · bar fills to your current tier</span></div>
+        <div class="table-wrap">
+          <table class="ph-table pivot-table">${cols}
+            <thead><tr><th>${cur.period ? formatMonth(cur.period) : 'MTD'}</th>${headTiers}</tr></thead>
+            <tbody><tr><td class="text-sm text-muted">month to date</td><td colspan="${nT}" class="pivot-bar-cell" title="${cur.tier ? esc(cur.tier) : 'No tier yet'}">${pct > 0 ? `<div class="pivot-bar" style="width:${pct}%"></div>` : ''}</td></tr></tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  // ── History block: tier achieved per completed month (from monthly snapshot) ──
+  const histRows = history.map(h => `<tr>
+      <td>${formatMonth(h.period)}</td>
+      <td class="text-sm text-muted">${esc(h.package || '')}</td>
+      <td>${h.tier ? `<span class="badge badge-ok">${esc(h.tier)}</span>` : '<span class="badge badge-none">–</span>'}</td>
+    </tr>`).join('');
+  const histBlock = `
+    <div class="card ph-section">
+      <div class="ph-section-head"><span class="ph-title">My Commission History</span><span class="ph-meta">tier achieved each month (monthly snapshot)</span></div>
+      <div class="table-wrap"><table class="ph-table">
+        <thead><tr><th>Month</th><th>Commission Type</th><th>Tier Achieved</th></tr></thead>
+        <tbody>${histRows || '<tr><td colspan="3" class="empty">No completed months yet.</td></tr>'}</tbody>
+      </table></div>
+    </div>`;
+
+  panel.innerHTML = mtdBlock + histBlock;
+}
+async function loadCommissionHistory() {
+  try {
+    state.commissionHistory = await api('getCommissionHistory', { email: state.currentUser.email, months: 12 });
+    renderCommission();
+  } catch (e) {
+    document.getElementById('panelCommission').innerHTML = '<div class="empty">Could not load commission history.</div>';
+  }
+}
+
+// ── Leadership: full stats + $ (heat-mapped), PIN-gated ─────────────────────
+function renderCommissionLeadership(panel) {
+  if (!state.adminPin) {
+    panel.innerHTML = `
+      <div class="card" style="text-align:center; padding:48px;">
+        <div style="font-size:48px; margin-bottom:16px;">🔒</div>
+        <h3 style="color:var(--brand); margin-bottom:8px;">Bonus &amp; Commission</h3>
+        <p style="color:var(--text-muted); margin-bottom:24px;">Enter the admin PIN to view commission dollar amounts and full stats.</p>
+        <button class="btn btn-primary" onclick="showPinModal()">Enter PIN</button>
+      </div>`;
+    return;
+  }
+  if (!state.commissionData) { panel.innerHTML = '<div class="loading"><div class="loading-spinner"></div></div>'; loadCommissionData(); return; }
+
+  const rows = (state.commissionData.rows || []).slice().sort((a, b) => (a.user_name || '').localeCompare(b.user_name || ''));
+  if (!rows.length) {
+    panel.innerHTML = `<div class="empty">No commission data for ${formatMonth(state.selectedMonth)} — the in-progress month finalises after month-end.</div>`;
+    return;
+  }
+
+  // Per-column heat-map shading (relative to each column's max).
+  const colMax = (vals) => Math.max(1, ...vals);
+  const maxPP   = colMax(rows.map(r => (+r.productivity || 0) * 100));
+  const maxTP   = colMax(rows.map(r => (+r.total_productivity || 0) * 100));
+  const maxDel  = colMax(rows.map(r => +r.delegate_h || 0));
+  const maxAuto = colMax(rows.map(r => +r.automated_h || 0));
+  const heat = (val, mx, rgb) => `style="background:rgba(${rgb},${(Math.min((val || 0) / mx, 1) * 0.85).toFixed(3)})"`;
+
+  const sum = (k) => rows.reduce((s, r) => s + (+r[k] || 0), 0);
+  const tBill = sum('billable_h'), tDel = sum('delegate_h'), tAuto = sum('automated_h'), tCap = sum('capacity_hours'), tComm = sum('commission_amount');
+  const gPP = tCap > 0 ? (tBill / tCap * 100) : 0;
+  const gTP = tCap > 0 ? ((tBill + tDel + tAuto) / tCap * 100) : 0;
+
+  const body = rows.map(r => {
+    const pp = (+r.productivity || 0) * 100, tp = (+r.total_productivity || 0) * 100;
+    return `<tr>
+      <td><strong>${esc(r.user_name || r.user_email || '')}</strong></td>
+      <td class="text-sm text-muted">${esc(r.commission_package || '–')}</td>
+      <td>${r.tier ? esc(r.tier) : '<span class="text-muted">–</span>'}</td>
+      <td class="num">${fmt1(r.billable_h)}</td>
+      <td class="num" ${heat(pp, maxPP, '232,133,58')}>${pp.toFixed(1)}%</td>
+      <td class="num" ${heat(r.delegate_h, maxDel, '139,108,179')}>${fmt1(r.delegate_h)}</td>
+      <td class="num" ${heat(r.automated_h, maxAuto, '70,178,157')}>${fmt1(r.automated_h)}</td>
+      <td class="num" ${heat(tp, maxTP, '235,31,87')}>${tp.toFixed(1)}%</td>
+      <td class="num font-mono">${r.commission_amount > 0 ? '$' + (+r.commission_amount).toFixed(2) : '<span class="text-muted">–</span>'}</td>
+    </tr>`;
+  }).join('');
+  const totalRow = `<tr class="grand-total">
+      <td><strong>Grand total</strong></td><td></td><td></td>
+      <td class="num"><b>${tBill.toFixed(1)}</b></td>
+      <td class="num"><b>${gPP.toFixed(1)}%</b></td>
+      <td class="num"><b>${tDel.toFixed(1)}</b></td>
+      <td class="num"><b>${tAuto.toFixed(1)}</b></td>
+      <td class="num"><b>${gTP.toFixed(1)}%</b></td>
+      <td class="num font-mono"><b>$${tComm.toFixed(2)}</b></td>
+    </tr>`;
+
+  panel.innerHTML = `
+    <div class="card ph-section">
+      <div class="ph-section-head"><span class="ph-title">Bonus Calculations</span><span class="ph-meta">${formatMonth(state.selectedMonth)} · ${rows.length} member${rows.length > 1 ? 's' : ''}</span></div>
+      <div class="table-wrap"><table class="ph-table">
+        <thead><tr><th>Name</th><th>Commission Type</th><th>Tier</th><th class="num">Billable Hours</th><th class="num">Personal Productivity</th><th class="num">Delegated Hours</th><th class="num">Automated Hours</th><th class="num">Total Productivity</th><th class="num">Commission</th></tr></thead>
+        <tbody>${body}${totalRow}</tbody>
+      </table></div>
+    </div>`;
+}
+
+async function loadCommissionData() {
+  try {
+    state.commissionData = await api('getCommissionData', {
+      month: state.selectedMonth,
+      email: state.currentUser.email,
+      pin:   state.adminPin,
+    });
+    renderCommission();
+  } catch (e) {
+    console.error(e);
+    document.getElementById('panelCommission').innerHTML =
+      '<div class="empty">Error loading commission data.</div>';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PIN MODAL
+// ═══════════════════════════════════════════════════════════════════════════
+function showPinModal() {
+  document.getElementById('pinModal').classList.remove('hidden');
+  document.getElementById('pinInput').focus();
+  document.getElementById('pinError').classList.add('hidden');
+}
+
+function closePin() {
+  document.getElementById('pinModal').classList.add('hidden');
+  document.getElementById('pinInput').value = '';
+}
+
+async function submitPin() {
+  const pin = document.getElementById('pinInput').value;
+  if (!pin) return;
+
+  // Validate by calling the API with the PIN
+  try {
+    const result = await api('getCommissionData', {
+      month: state.selectedMonth,
+      email: state.currentUser.email,
+      pin,
+    });
+    if (result.error) {
+      document.getElementById('pinError').textContent = '❌ Incorrect PIN. Please try again.';
+      document.getElementById('pinError').classList.remove('hidden');
+      return;
+    }
+    state.adminPin      = pin;
+    state.commissionData = result;
+    closePin();
+    renderCommission();
+  } catch (e) {
+    document.getElementById('pinError').textContent = '⚠️ Error verifying PIN.';
+    document.getElementById('pinError').classList.remove('hidden');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LOGOUT
+// ═══════════════════════════════════════════════════════════════════════════
+function logout() {
+  Object.values(state.charts).forEach(c => c.destroy());
+  state = { users: state.users, availableMonths: state.availableMonths,
+            selectedMonth: state.selectedMonth, charts: {},
+            currentUser: null, projectHealth: null, teamUtil: null,
+            clientBreakdown: null, commissionData: null, adminPin: null, activeTab: '' };
+  document.getElementById('dashboard').classList.add('hidden');
+  document.getElementById('landing').classList.remove('hidden');
+  document.getElementById('logoutBtn').style.display = 'none';
+  document.getElementById('userSelect').value = '';
+  document.getElementById('goBtn').disabled = true;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BOOT — Google Sign-In gate, then init()
+// ═══════════════════════════════════════════════════════════════════════════
+function onGoogleCredential(resp) {
+  if (!resp || !resp.credential) return;
+  state.idToken = resp.credential;           // verified server-side on every call
+  document.getElementById('signinErr').textContent = '';
+  document.getElementById('signinGate').style.display = 'none';
+  init();
+}
+
+// Called when the Google Identity Services library has loaded (see script tag below).
+function onGisLoaded() {
+  if (!window.google || !google.accounts || !google.accounts.id) return;
+  if (GOOGLE_CLIENT_ID.indexOf('YOUR_CLIENT_ID') === 0) {
+    document.getElementById('signinMsg').textContent = 'Sign-in not configured yet (GOOGLE_CLIENT_ID missing).';
+    return;
+  }
+  google.accounts.id.initialize({
+    client_id: GOOGLE_CLIENT_ID,
+    callback: onGoogleCredential,
+    auto_select: true,           // silently re-signs in a returning, still-valid user
+  });
+  google.accounts.id.renderButton(document.getElementById('gbtn'),
+    { theme: 'filled_blue', size: 'large', text: 'signin_with', shape: 'pill' });
+  google.accounts.id.prompt();   // One Tap
+}
+</script>
+<script src="https://accounts.google.com/gsi/client" onload="onGisLoaded()" async defer></script>
+</body>
+</html>
