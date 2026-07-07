@@ -320,7 +320,7 @@
   <h1><span class="brand-dot"></span>Strictly Savvy<span class="header-sub">Team Dashboard</span></h1>
   <div class="header-right">
     <div class="data-meta" id="dataMeta"></div>
-    <span class="build-badge" title="build 2026-06-26·s">&#9432;</span>
+    <span class="build-badge" title="build 2026-06-26·u">&#9432;</span>
     <span class="refresh-info" id="refreshInfo"></span>
     <button class="btn btn-secondary btn-sm" onclick="logout()" id="logoutBtn" style="display:none">
       Sign out
@@ -1391,7 +1391,7 @@ function renderClientHistoryChart(data) {
 // Team Utilisation chart colours (brand-aligned, distinct per bucket).
 const TU = {
   billable: '#EB1F57', internal: '#6B8483', automationCat: '#46B29D', leave: '#F6A57A', leave_wo_pay: '#B5651D',
-  tech: '#E8853A', nonbill: '#E8C13A', public_holiday: '#8B6CB3', unrecorded: '#C9CDD2',
+  tech: '#E8853A', nonbill: '#E8C13A', public_holiday: '#8B6CB3', unrecorded: '#C9CDD2', over: '#C0392B',
   personal: '#EB1F57', delegated: '#6B8483', automated: '#8B6CB3',
   lineProd: '#CD0139', lineDeleg: '#E8853A', lineBillable: '#CD0139',
 };
@@ -1445,9 +1445,23 @@ function tuSort_(members) {
 // Build chart "items" from a row (works for a per-member month row OR a per-month
 // history/comparison series row — field names match across all three endpoints).
 function tuUtilItem_(r, label) {
-  return { label, billable: r.billable_h || 0, internal: r.internal_h || 0, automation: r.automation_setup_h || 0,
-    leave: r.leave_h || 0, leave_wo_pay: r.leave_wo_pay_h || 0, tech: r.tech_issues_h || 0, nonbill: r.non_billable_h || 0,
-    public_holiday: r.public_holiday_h || 0, unrecorded: r.unrecorded_h || 0, billable_pct: r.billable_pct };
+  const over = r.over_capacity_h || 0;   // paid work logged beyond capacity (salaried)
+  let billable = r.billable_h || 0, internal = r.internal_h || 0, automation = r.automation_setup_h || 0,
+      tech = r.tech_issues_h || 0, nonbill = r.non_billable_h || 0, leave = r.leave_h || 0,
+      public_holiday = r.public_holiday_h || 0;
+  if (over > 0) {
+    // Recolour the hours above capacity as one "Over capacity" segment: clip the
+    // coloured categories from the TOP of the stack (billable preserved at the
+    // bottom) so they sum to capacity, leaving `over` as the distinct excess. Bar
+    // height is unchanged; the table still shows true category hours.
+    let excess = over;
+    const clip = (v) => { const t = Math.min(v, excess); excess -= t; return v - t; };
+    public_holiday = clip(public_holiday); leave = clip(leave); nonbill = clip(nonbill);
+    tech = clip(tech); automation = clip(automation); internal = clip(internal); billable = clip(billable);
+  }
+  return { label, billable, internal, automation, leave, leave_wo_pay: r.leave_wo_pay_h || 0, tech,
+    nonbill, public_holiday, unrecorded: r.unrecorded_h || 0, over,
+    billable_pct: r.billable_pct };
 }
 function tuDelegItem_(r, label) {
   return { label, personal: r.personal_billable_h || 0, delegated: r.delegate_h || 0, automated: r.automated_h || 0,
@@ -1473,7 +1487,9 @@ function makeTuChartConfig(kind, labels, items) {
       bar('Billable', 'billable', TU.billable), bar('Internal', 'internal', TU.internal),
       bar('Automation', 'automation', TU.automationCat), bar('Tech Issues', 'tech', TU.tech),
       bar('Non-billable', 'nonbill', TU.nonbill), bar('Leave', 'leave', TU.leave),
-      bar('Public Holiday', 'public_holiday', TU.public_holiday), bar('Leave w/o Pay', 'leave_wo_pay', TU.leave_wo_pay),
+      bar('Public Holiday', 'public_holiday', TU.public_holiday),
+      bar('Over capacity', 'over', TU.over),
+      bar('Leave w/o Pay', 'leave_wo_pay', TU.leave_wo_pay),
       bar('Unrecorded', 'unrecorded', TU.unrecorded),
       line('Billable %', 'billable_pct', TU.lineBillable),
     ];
@@ -1524,7 +1540,7 @@ function buildTuUtilSection(title, members, charts, chartId) {
   const items = members.map(m => tuUtilItem_(m, shortName_(m.user_name)));
   charts.push({ id: chartId, kind: 'global', labels: items.map(i => i.label), items });
   const avg = members.length ? Math.round(members.reduce((s, m) => s + (m.billable_pct || 0), 0) / members.length) : 0;
-  const thead = `<tr><th>Team Member</th><th class="num">Cap.</th><th class="num">Billable</th><th class="num">Internal</th><th class="num">Automation</th><th class="num">Tech</th><th class="num">Non-Bill</th><th class="num">Leave</th><th class="num">Pub Hol</th><th class="num">L w/o Pay</th><th class="num">Unrec.</th><th>Billable %</th></tr>`;
+  const thead = `<tr><th>Team Member</th><th class="num">Cap.</th><th class="num">Billable</th><th class="num">Internal</th><th class="num">Automation</th><th class="num">Tech</th><th class="num">Non-Bill</th><th class="num">Leave</th><th class="num">Pub Hol</th><th class="num">L w/o Pay</th><th class="num">Unrec.</th><th class="num">Over</th><th>Billable %</th></tr>`;
   const tbody = members.map(m => {
     const pct = m.billable_pct;
     const cls = pct == null ? 'none' : pct >= 70 ? 'ok' : pct >= 50 ? 'warn' : 'over';
@@ -1540,6 +1556,7 @@ function buildTuUtilSection(title, members, charts, chartId) {
       <td class="num">${fmt1(m.public_holiday_h)}</td>
       <td class="num">${fmt1(m.leave_wo_pay_h)}</td>
       <td class="num">${fmt1(m.unrecorded_h)}</td>
+      <td class="num"${(m.over_capacity_h || 0) > 0 ? ' style="color:#C0392B;font-weight:700"' : ''}>${fmt1(m.over_capacity_h)}</td>
       <td><div class="prog-wrap"><div class="prog-bar"><div class="prog-fill ${cls === 'none' ? 'ok' : cls}" style="width:${Math.min(pct || 0, 100)}%"></div></div><span class="prog-pct">${pct == null ? '–' : pct + '%'}</span></div></td>
     </tr>`;
   }).join('');
