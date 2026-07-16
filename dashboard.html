@@ -344,7 +344,7 @@
   <h1><span class="brand-dot"></span>Strictly Savvy<span class="header-sub">Team Dashboard</span></h1>
   <div class="header-right">
     <div class="data-meta" id="dataMeta"></div>
-    <span class="build-badge" title="build 2026-06-26·z">&#9432;</span>
+    <span class="build-badge" title="build 2026-06-26·aa">&#9432;</span>
     <span class="refresh-info" id="refreshInfo"></span>
     <button class="btn btn-secondary btn-sm" onclick="logout()" id="logoutBtn" style="display:none">
       Sign out
@@ -461,6 +461,9 @@ let state = {
   commissionData:  null,
   leadership:      null,   // Leadership tab: revenue leakage + effective rate
   isLeadership:    false,  // from getBootstrap; the API gate is the real control
+  leadHistory:     null,   // Leadership trend: revenue/leakage over time
+  leadClient:      '',     // '' = all clients
+  leadMonths:      '12',
   adminPin:        null,
   charts:          {},
   activeTab:       '',
@@ -2361,11 +2364,33 @@ function renderLeadership() {
       <tbody>${rows}</tbody>
     </table></div>`;
 
+  // Client options for the trend picker, drawn from this month's activity.
+  const opts = ['<option value="">All clients</option>']
+    .concat(clients.map(c => `<option value="${esc(c.client_id || '')}">${esc(c.client_name)}</option>`))
+    .join('');
+
+  const trend = `
+    <div class="card" style="padding:0; margin-bottom:20px">
+      <div class="ph-section-head"><span class="ph-title">Performance Over Time</span>
+        <span class="ph-meta">revenue vs written off, and the rate we actually realise</span></div>
+      <div class="ch-controls" style="padding:14px 20px 0">
+        <div class="ctrl-group"><label>Client</label>
+          <select id="leadClientSel" onchange="onLeadTrendChange()">${opts}</select></div>
+        <div class="ctrl-group" style="max-width:180px"><label>Period</label>
+          <select id="leadMonthsSel" onchange="onLeadTrendChange()">
+            <option value="6">Last 6 months</option>
+            <option value="12" selected>Last 12 months</option>
+          </select></div>
+      </div>
+      <div id="leadTrendArea" style="padding:8px 20px 20px"></div>
+    </div>`;
+
   el.innerHTML = `
     ${tiles}
+    ${trend}
     <div class="card" style="padding:0">
       <div class="ph-section-head"><span class="ph-title">Revenue Leakage &amp; Effective Rate</span>
-        <span class="ph-meta">click a client to see its projects</span></div>
+        <span class="ph-meta">this month · click a client to see its projects</span></div>
       <div class="lead-note">
         <b>Written off</b> — hours delivered past base + approved additional. The work is done and can't be billed; this is money out the door.
         &nbsp;·&nbsp; <b>Approved unused</b> — additional hours approved but never worked. Not a loss, but authorised revenue that never landed.
@@ -2374,6 +2399,109 @@ function renderLeadership() {
       </div>
       ${table}
     </div>`;
+
+  // Re-renders rebuild the DOM, so restore the pickers, then draw from cache or fetch.
+  const cs = document.getElementById('leadClientSel');
+  const ms = document.getElementById('leadMonthsSel');
+  if (cs) cs.value = state.leadClient || '';
+  if (ms) ms.value = state.leadMonths || '12';
+  if (state.leadHistory) renderLeadTrend(); else onLeadTrendChange();
+}
+
+// Trend: revenue vs written-off per month, with the realised rate as a line.
+// Fetched separately from the monthly summary because it has its own client and
+// period pickers — the tab's tiles stay on the selected month regardless.
+let leadChart = null;
+
+async function onLeadTrendChange() {
+  const cs = document.getElementById('leadClientSel');
+  const ms = document.getElementById('leadMonthsSel');
+  if (cs) state.leadClient = cs.value;
+  if (ms) state.leadMonths = ms.value;
+  const area = document.getElementById('leadTrendArea');
+  if (area) area.innerHTML = '<div class="loading"><div class="loading-spinner"></div></div>';
+  try {
+    state.leadHistory = await api('getLeadershipHistory',
+      { clientId: state.leadClient || '', months: state.leadMonths || '12' });
+  } catch (e) {
+    if (area) area.innerHTML = '<div class="empty">Could not load history.</div>';
+    return;
+  }
+  renderLeadTrend();
+}
+
+function renderLeadTrend() {
+  const area = document.getElementById('leadTrendArea');
+  if (!area) return;
+  const d = state.leadHistory;
+  if (!d || d.error) {
+    area.innerHTML = `<div class="empty">${esc((d && (d.message || d.error)) || 'No data.')}</div>`;
+    return;
+  }
+  const M = d.months || [], P = d.projects || [];
+  if (!M.length) { area.innerHTML = '<div class="empty">No activity in this period.</div>'; return; }
+
+  const m  = n => '$' + Math.round(n || 0).toLocaleString();
+  const h  = n => (n || 0).toFixed(1);
+  const rate = n => n != null ? '$' + n.toFixed(2) : '<span class="lead-zero">—</span>';
+
+  const projTable = !P.length ? '' : `
+    <div class="table-wrap" style="margin-top:16px"><table class="ph-table">
+      <thead><tr><th>Project</th><th class="num">Revenue</th><th class="num">Billable h</th>
+        <th class="num">Eff. $/h</th><th class="num">Written off</th></tr></thead>
+      <tbody>${P.map(p => `
+        <tr${p.written_off_value > 0 ? ' style="background:rgba(192,57,43,.05)"' : ''}>
+          <td>${esc(p.project_name)}<span class="lead-type">${esc(p.agreement_type)}${
+            p.tracking === 'cumulative' ? ' · cumulative' : ''}${
+            d.client_id ? '' : ' · ' + esc(p.client_name || '')}</span></td>
+          <td class="num">${m(p.revenue)}</td>
+          <td class="num">${h(p.billable_h)}</td>
+          <td class="num">${rate(p.effective_rate)}</td>
+          <td class="num">${p.written_off_value ? m(p.written_off_value) : '<span class="lead-zero">—</span>'}</td>
+        </tr>`).join('')}</tbody>
+    </table></div>`;
+
+  const totWritten = M.reduce((s, x) => s + (x.written_off_value || 0), 0);
+  area.innerHTML = `
+    <div class="ph-chart-wrap" style="height:340px"><canvas id="leadTrendChart"></canvas></div>
+    <div class="text-sm text-muted" style="padding-top:6px">
+      ${esc(d.client_name)} · ${M.length} months · ${m(totWritten)} written off over the period.
+      Fixed-fee write-offs land in the month the hours crossed the budget.
+    </div>
+    ${projTable}`;
+
+  if (leadChart) { try { leadChart.destroy(); } catch (e) {} }
+  leadChart = new Chart(document.getElementById('leadTrendChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: M.map(x => formatMonth(x.period)),
+      datasets: [
+        { label: 'Revenue',        data: M.map(x => x.revenue),           backgroundColor: '#CD0139', order: 3 },
+        { label: 'Written off',    data: M.map(x => x.written_off_value), backgroundColor: '#C0392B', order: 2 },
+        { label: 'Effective rate', data: M.map(x => x.effective_rate), type: 'line', yAxisID: 'y1',
+          borderColor: '#2C3E50', backgroundColor: '#2C3E50', tension: .3, pointRadius: 3, order: 1 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        y:  { beginAtZero: true, ticks: { callback: v => '$' + Number(v).toLocaleString() } },
+        y1: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false },
+              title: { display: true, text: '$/h' },
+              ticks: { callback: v => '$' + Number(v).toFixed(0) } },
+      },
+      plugins: {
+        tooltip: { callbacks: { label: c => {
+          const v = c.parsed.y;
+          return c.dataset.yAxisID === 'y1'
+            ? `${c.dataset.label}: ${v == null ? '—' : '$' + v.toFixed(2) + '/h'}`
+            : `${c.dataset.label}: $${Math.round(v || 0).toLocaleString()}`;
+        } } },
+      },
+    },
+  });
+  state.tuChartInstances.push(leadChart);   // cleaned up on view switch
 }
 
 function toggleLeadClient(i) {
@@ -2397,6 +2525,8 @@ function logout() {
             currentUser: null, projectHealth: null, teamUtil: null,
             clientBreakdown: null, commissionData: null, adminPin: null, activeTab: '',
             leadership: null, isLeadership: state.isLeadership,
+            leadHistory: null, leadClient: '', leadMonths: '12',
+            tuChartInstances: [],   // was dropped entirely — later chart pushes threw
             idToken: state.idToken, lastRefresh: state.lastRefresh };
   document.getElementById('dashboard').classList.add('hidden');
   document.getElementById('landing').classList.remove('hidden');
