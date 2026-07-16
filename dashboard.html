@@ -2328,7 +2328,10 @@ function renderLeadership() {
     const projs = c.projects || [];
     const sub = projs.map(p => `
       <tr class="lead-proj lead-proj-${i} hidden">
-        <td style="padding-left:30px">↳ ${esc(p.project_name)}<span class="lead-type">${esc(p.agreement_type)}</span></td>
+        <td style="padding-left:30px">↳ ${esc(p.project_name)}<span class="lead-type">${esc(p.agreement_type)}${
+          p.life_billable_used != null
+            ? ` · ${h(p.life_billable_used)} h of ${h(p.budget_hours)} lifetime`
+            : ''}</span></td>
         <td class="num">${mz(p.revenue)}</td>
         <td class="num">${h(p.billable_used)}</td>
         <td class="num">${p.rate ? '$' + p.rate.toFixed(2) : '<span class="lead-zero">—</span>'}</td>
@@ -2367,7 +2370,7 @@ function renderLeadership() {
         <b>Written off</b> — hours delivered past base + approved additional. The work is done and can't be billed; this is money out the door.
         &nbsp;·&nbsp; <b>Approved unused</b> — additional hours approved but never worked. Not a loss, but authorised revenue that never landed.
         &nbsp;·&nbsp; <b>Base under-delivered</b> — fee projects billed in full while delivering under base. Flatters this month, but the client is paying for capacity they aren't getting.
-        <br>These measure different things and deliberately don't sum. Flexi is excluded (uncapped — we bill what we work), as are cumulative projects (lifetime-to-date, so they can't be totalled per month).
+        <br>These measure different things and deliberately don't sum. Fixed-fee / Project work counts toward <b>written off</b>: once past its total budget the fee is capped, so every further hour is unbillable — recognised in the month the hours crossed the line. Flexi is excluded throughout (uncapped — we bill what we work).
       </div>
       ${table}
     </div>`;
