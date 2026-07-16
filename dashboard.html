@@ -288,6 +288,22 @@
   .tu-trend-title { font-weight: 800; color: var(--ink); font-size: 14px; padding: 12px 20px 0; }
   .ph-sub { font-weight: 700; color: var(--text-muted); font-size: 12px; text-transform: uppercase;
             letter-spacing: .4px; padding: 14px 20px 0; }
+  /* Team Comparison builder: selection picker + aggregated chart */
+  .tu-cmp-row { display: flex; gap: 16px; padding: 0 20px 20px; align-items: flex-start; }
+  @media (max-width: 900px) { .tu-cmp-row { flex-direction: column; } }
+  .tu-cmp-pick { width: 260px; flex: none; }
+  @media (max-width: 900px) { .tu-cmp-pick { width: 100%; } }
+  .tu-cmp-chart { flex: 1; min-width: 0; }
+  .tu-cmp-search { width: 100%; font-family: inherit; font-size: 13px; padding: 6px 8px;
+                   border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; }
+  .tu-cmp-list { border: 1px solid var(--border); border-radius: 8px; max-height: 300px; overflow-y: auto; padding: 4px; background: #fff; }
+  .tu-cmp-h { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em;
+              color: var(--text-muted); padding: 8px 6px 3px; }
+  .tu-cmp-h + .tu-cmp-h, .tu-cmp-item + .tu-cmp-h { border-top: 1px solid var(--border); margin-top: 4px; }
+  .tu-cmp-item { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+  .tu-cmp-item:hover { background: var(--bg); }
+  .tu-cmp-item input { width: auto; flex: none; margin: 0; }
+  .tu-cmp-sub { color: var(--text-muted); font-size: 11px; }
   .tu-team-checks { display: flex; flex-wrap: wrap; gap: 8px 16px; padding-top: 4px; }
   .tu-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text);
               font-weight: 600; cursor: pointer; }
@@ -320,7 +336,7 @@
   <h1><span class="brand-dot"></span>Strictly Savvy<span class="header-sub">Team Dashboard</span></h1>
   <div class="header-right">
     <div class="data-meta" id="dataMeta"></div>
-    <span class="build-badge" title="build 2026-06-26·x">&#9432;</span>
+    <span class="build-badge" title="build 2026-06-26·y">&#9432;</span>
     <span class="refresh-info" id="refreshInfo"></span>
     <button class="btn btn-secondary btn-sm" onclick="logout()" id="logoutBtn" style="display:none">
       Sign out
@@ -1731,49 +1747,132 @@ function renderTuTrend(data) {
     makeTuChartConfig('nz', labels, S.map(s => tuDelegItem_(s, formatMonth(s.period))))));
 }
 
-// ── Team Comparison (multi-select teams) ───────────────────────────────────
+// ── Team Comparison — two independent "builders" ───────────────────────────
+// Each builder takes a free mix of TEAMS and INDIVIDUALS and draws ONE aggregated
+// chart, so two selections can be compared side by side. Someone picked directly
+// AND via their team is counted once (de-duped server-side).
+let tuCmpSel    = { a: { teams: [], emails: [] }, b: { teams: [], emails: [] } };
+let tuCmpCharts = { a: null, b: null };
+
 function renderTuCompareShell() {
-  const teams = [...new Set((state.users || []).map(u => u.team_label).filter(Boolean))].sort();
-  const checks = teams.map(t => `<label class="tu-check"><input type="checkbox" value="${esc(t)}" onchange="onTuCompareChange()"> ${esc(t)}</label>`).join('');
   return `
     <div class="card">
-      <div class="ph-section-head"><span class="ph-title">Team Comparison</span><span class="ph-meta">utilisation by team, month-by-month</span></div>
-      <div class="ch-controls" style="align-items:flex-start">
-        <div class="ctrl-group" style="min-width:auto"><label>Teams (multi-select)</label><div class="tu-team-checks">${checks}</div></div>
-        <div class="ctrl-group" style="max-width:180px"><label>Period</label><select id="tuCmpMonths" onchange="onTuCompareChange()"><option value="6">Last 6 months</option><option value="12" selected>Last 12 months</option></select></div>
+      <div class="ph-section-head">
+        <span class="ph-title">Team Comparison</span>
+        <span class="ph-meta">build two selections — any mix of individuals and teams — and compare their aggregated utilisation</span>
       </div>
-      <div id="tuCompareArea" style="padding:8px 20px 20px"><div class="empty">Select one or more teams to compare.</div></div>
+      <div class="ch-controls">
+        <div class="ctrl-group" style="max-width:180px"><label>Period</label>
+          <select id="tuCmpMonths" onchange="onTuCmpChange('a'); onTuCmpChange('b');">
+            <option value="6">Last 6 months</option>
+            <option value="12" selected>Last 12 months</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    ${tuCmpPanel_('a', 'Selection A')}
+    ${tuCmpPanel_('b', 'Selection B')}`;
+}
+function tuCmpPanel_(k, title) {
+  const K = k.toUpperCase();
+  return `
+    <div class="card">
+      <div class="ph-section-head"><span class="ph-title">${title}</span><span class="ph-meta" id="tuCmpMeta${K}">nothing selected</span></div>
+      <div class="tu-cmp-row">
+        <div class="tu-cmp-pick">
+          <input class="tu-cmp-search" id="tuCmpSearch${K}" placeholder="filter teams / people…" oninput="renderTuCmpPicker('${k}')">
+          <div id="tuCmpPick${K}" class="tu-cmp-list"></div>
+          <button class="ph-sort" style="margin-top:8px" onclick="clearTuCmp('${k}')">Clear selection</button>
+        </div>
+        <div class="tu-cmp-chart">
+          <div id="tuCmpArea${K}"><div class="empty">Pick teams and/or people to build this selection.</div></div>
+        </div>
+      </div>
     </div>`;
 }
-function initTuCompare() { /* checkboxes are inline; nothing to preload */ }
-function onTuCompareChange() {
-  const checks = Array.from(document.querySelectorAll('.tu-team-checks input:checked')).map(c => c.value);
-  const months = document.getElementById('tuCmpMonths').value || '12';
-  const area = document.getElementById('tuCompareArea');
-  if (!checks.length) { area.innerHTML = '<div class="empty">Select one or more teams to compare.</div>'; return; }
-  loadTuCompare(checks.join(','), months);
+function initTuCompare() {
+  tuCmpCharts = { a: null, b: null };
+  renderTuCmpPicker('a'); renderTuCmpPicker('b');
+  onTuCmpChange('a');     onTuCmpChange('b');   // restores any selection when returning to the tab
 }
-async function loadTuCompare(teamsCsv, months) {
-  const area = document.getElementById('tuCompareArea');
-  area.innerHTML = '<div class="loading"><div class="loading-spinner"></div></div>';
-  try { renderTuCompare(await api('getTeamComparisonHistory', { teams: teamsCsv, months })); }
-  catch (e) { area.innerHTML = '<div class="empty">Could not load comparison.</div>'; }
+
+function tuCmpOptions_() {
+  const users = (state.users || []).slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  const teams = [...new Set(users.map(u => u.team_label).filter(Boolean))].sort();
+  return { teams, users };
 }
-function renderTuCompare(data) {
-  const area = document.getElementById('tuCompareArea');
-  const td = (data.teams_data || []).filter(t => (t.series || []).length);
-  if (!td.length) { area.innerHTML = '<div class="empty">No data for the selected teams.</div>'; return; }
-  const charts = [];
+function renderTuCmpPicker(k) {
+  const K = k.toUpperCase();
+  const box = document.getElementById('tuCmpPick' + K);
+  if (!box) return;
+  const q = ((document.getElementById('tuCmpSearch' + K) || {}).value || '').trim().toLowerCase();
+  const { teams, users } = tuCmpOptions_();
+  const sel = tuCmpSel[k];
+  const tShow = teams.filter(t => !q || t.toLowerCase().indexOf(q) >= 0);
+  const uShow = users.filter(u => !q || `${u.name || ''} ${u.team_label || ''}`.toLowerCase().indexOf(q) >= 0);
+
   let html = '';
-  td.forEach((t, idx) => {
-    const id = `tuCmp_${idx}`;
-    const items = t.series.map(s => tuUtilItem_(s, formatMonth(s.period)));
-    charts.push({ id, items, labels: items.map(i => i.label) });
-    html += `<div class="tu-trend-title">${esc(t.team_label)}</div><div class="ph-chart-row"><div class="ph-chart-wrap" style="height:360px"><canvas id="${id}"></canvas></div></div>`;
-  });
-  area.innerHTML = html;
-  destroyTuCharts();
-  charts.forEach(c => state.tuChartInstances.push(new Chart(document.getElementById(c.id).getContext('2d'), makeTuChartConfig('global', c.labels, c.items))));
+  if (tShow.length) {
+    html += '<div class="tu-cmp-h">Teams</div>' + tShow.map(t =>
+      `<label class="tu-cmp-item"><input type="checkbox" value="${esc(t)}" ${sel.teams.indexOf(t) >= 0 ? 'checked' : ''}
+        onchange="toggleTuCmp('${k}','team',this.value,this.checked)"><span>${esc(t)}</span></label>`).join('');
+  }
+  if (uShow.length) {
+    html += '<div class="tu-cmp-h">Individuals</div>' + uShow.map(u =>
+      `<label class="tu-cmp-item"><input type="checkbox" value="${esc(u.email)}" ${sel.emails.indexOf(u.email) >= 0 ? 'checked' : ''}
+        onchange="toggleTuCmp('${k}','member',this.value,this.checked)"><span>${esc(u.name)} <span class="tu-cmp-sub">${esc(u.team_label || '')}</span></span></label>`).join('');
+  }
+  box.innerHTML = html || '<div class="empty" style="padding:12px">No matches.</div>';
+}
+function toggleTuCmp(k, kind, val, on) {
+  const arr = kind === 'team' ? tuCmpSel[k].teams : tuCmpSel[k].emails;
+  const i = arr.indexOf(val);
+  if (on && i < 0) arr.push(val);
+  if (!on && i >= 0) arr.splice(i, 1);
+  onTuCmpChange(k);
+}
+function clearTuCmp(k) {
+  tuCmpSel[k] = { teams: [], emails: [] };
+  renderTuCmpPicker(k); onTuCmpChange(k);
+}
+
+async function onTuCmpChange(k) {
+  const K = k.toUpperCase();
+  const sel = tuCmpSel[k];
+  const meta = document.getElementById('tuCmpMeta' + K);
+  const area = document.getElementById('tuCmpArea' + K);
+  if (!area) return;
+
+  const bits = [];
+  if (sel.teams.length)  bits.push(`${sel.teams.length} team${sel.teams.length > 1 ? 's' : ''}`);
+  if (sel.emails.length) bits.push(`${sel.emails.length} individual${sel.emails.length > 1 ? 's' : ''}`);
+  if (meta) meta.textContent = bits.length ? bits.join(' + ') : 'nothing selected';
+
+  if (!sel.teams.length && !sel.emails.length) {
+    if (tuCmpCharts[k]) { try { tuCmpCharts[k].destroy(); } catch (e) {} tuCmpCharts[k] = null; }
+    area.innerHTML = '<div class="empty">Pick teams and/or people to build this selection.</div>';
+    return;
+  }
+  area.innerHTML = '<div class="loading"><div class="loading-spinner"></div></div>';
+  const months = (document.getElementById('tuCmpMonths') || {}).value || '12';
+  try {
+    const data = await api('getUtilisationAggregate', { emails: sel.emails.join(','), teams: sel.teams.join(','), months });
+    renderTuCmpChart(k, data);
+  } catch (e) { area.innerHTML = '<div class="empty">Could not load this selection.</div>'; }
+}
+function renderTuCmpChart(k, data) {
+  const K = k.toUpperCase();
+  const area = document.getElementById('tuCmpArea' + K);
+  const S = data.series || [];
+  if (!S.length) { area.innerHTML = '<div class="empty">No data for this selection.</div>'; return; }
+  const id = 'tuCmpChart' + K;
+  area.innerHTML = `<div class="ph-chart-wrap" style="height:360px"><canvas id="${id}"></canvas></div>
+    <div class="text-sm text-muted" style="padding-top:6px">${data.member_count} member${data.member_count === 1 ? '' : 's'} · Billable % measured per person — salaried vs capacity, contractors vs recorded hours — then combined</div>`;
+  const items = S.map(s => tuUtilItem_(s, formatMonth(s.period)));
+  if (tuCmpCharts[k]) { try { tuCmpCharts[k].destroy(); } catch (e) {} }   // only this panel's chart
+  tuCmpCharts[k] = new Chart(document.getElementById(id).getContext('2d'),
+    makeTuChartConfig('global', items.map(i => i.label), items));
+  state.tuChartInstances.push(tuCmpCharts[k]);   // so a view switch still cleans it up
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
