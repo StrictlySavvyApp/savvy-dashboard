@@ -320,7 +320,7 @@
   <h1><span class="brand-dot"></span>Strictly Savvy<span class="header-sub">Team Dashboard</span></h1>
   <div class="header-right">
     <div class="data-meta" id="dataMeta"></div>
-    <span class="build-badge" title="build 2026-06-26·w">&#9432;</span>
+    <span class="build-badge" title="build 2026-06-26·x">&#9432;</span>
     <span class="refresh-info" id="refreshInfo"></span>
     <button class="btn btn-secondary btn-sm" onclick="logout()" id="logoutBtn" style="display:none">
       Sign out
@@ -448,17 +448,42 @@ let state = {
 // API
 // ═══════════════════════════════════════════════════════════════════════════
 async function api(action, extra = {}) {
+  let data = await _apiCall(action, extra);
+  // Google ID tokens expire ~hourly. On an expired-token error (reason !== 'denied'),
+  // silently fetch a fresh token and retry ONCE — so the sign-in gate only reappears
+  // if the Google session itself is gone, not every hour.
+  if (data && data.error === 'auth' && data.reason !== 'denied') {
+    try { await ensureFreshToken(); data = await _apiCall(action, extra); } catch (e) { /* refresh failed */ }
+  }
+  if (data && data.error === 'auth') { handleAuthError(data); throw new Error(data.message || 'Sign-in required'); }
+  return data;
+}
+async function _apiCall(action, extra) {
   const params = new URLSearchParams({ action, ...extra, idtoken: state.idToken || '' });
   // no-store: never let the browser serve a stale cached response (the server
   // has its own versioned cache). Fixes fixed-URL calls like getDataMeta.
   const res = await fetch(`${API_BASE}?${params}`, { cache: 'no-store' });
   if (!res.ok) throw new Error(`API error ${res.status}`);
-  const data = await res.json();
-  if (data && data.error === 'auth') { handleAuthError(data); throw new Error(data.message || 'Sign-in required'); }
-  return data;
+  return res.json();
 }
 
-// Show the sign-in gate again when the token is missing/expired or not allowlisted.
+// Ask Google Identity Services (silently, via auto_select) for a fresh credential.
+// Resolves when onGoogleCredential fires with a new token; rejects after a short wait
+// (means the Google session is truly gone → the gate is the correct fallback).
+let _tokenWaiters = [];
+function ensureFreshToken() {
+  return new Promise((resolve, reject) => {
+    if (!(window.google && google.accounts && google.accounts.id)) { reject(new Error('GIS not loaded')); return; }
+    _tokenWaiters.push(resolve);
+    try { google.accounts.id.prompt(); } catch (e) {}
+    setTimeout(function () {
+      const i = _tokenWaiters.indexOf(resolve);
+      if (i >= 0) { _tokenWaiters.splice(i, 1); reject(new Error('token refresh timed out')); }
+    }, 3500);
+  });
+}
+
+// Show the sign-in gate again — only when re-auth truly can't happen silently.
 function handleAuthError(data) {
   const gate = document.getElementById('signinGate');
   if (gate) gate.style.display = 'flex';
@@ -2240,10 +2265,16 @@ function flashToast(msg) {
 // ═══════════════════════════════════════════════════════════════════════════
 function onGoogleCredential(resp) {
   if (!resp || !resp.credential) return;
+  const firstTime = !state.idToken;          // distinguish first sign-in from a silent refresh
   state.idToken = resp.credential;           // verified server-side on every call
   document.getElementById('signinErr').textContent = '';
   document.getElementById('signinGate').style.display = 'none';
-  init();
+  // Wake any in-flight requests waiting on a fresh token (silent re-auth).
+  const waiters = _tokenWaiters; _tokenWaiters = [];
+  waiters.forEach(function (r) { try { r(resp.credential); } catch (e) {} });
+  // Only bootstrap on the FIRST sign-in — a mid-session token refresh must NOT
+  // re-run init() (that would bounce the user back to the landing screen).
+  if (firstTime) init();
 }
 
 // Called when the Google Identity Services library has loaded (see script tag below).
