@@ -189,6 +189,14 @@
                      margin-bottom: 12px; }
   @keyframes spin { to { transform: rotate(360deg); } }
   .empty { text-align: center; padding: 32px; color: var(--text-muted); font-size: 14px; }
+  /* Leadership tab */
+  .lead-note { padding: 12px 20px 16px; font-size: 12.5px; color: var(--text-muted); line-height: 1.6; }
+  .lead-note b { color: var(--ink); font-weight: 600; }
+  .lead-client { font-weight: 600; }
+  .lead-proj td { color: var(--text-muted); font-weight: 400; background: rgba(0,0,0,.015); }
+  .lead-caret { display: inline-block; width: 12px; color: var(--text-muted); font-size: 10px; }
+  .lead-type { color: var(--text-muted); font-weight: 400; font-size: 11px; margin-left: 6px; }
+  .lead-zero { color: var(--text-muted); opacity: .5; }
 
   /* ── Responsive ───────────────────────────────────────────────────── */
   @media (max-width: 768px) {
@@ -336,7 +344,7 @@
   <h1><span class="brand-dot"></span>Strictly Savvy<span class="header-sub">Team Dashboard</span></h1>
   <div class="header-right">
     <div class="data-meta" id="dataMeta"></div>
-    <span class="build-badge" title="build 2026-06-26·y">&#9432;</span>
+    <span class="build-badge" title="build 2026-06-26·z">&#9432;</span>
     <span class="refresh-info" id="refreshInfo"></span>
     <button class="btn btn-secondary btn-sm" onclick="logout()" id="logoutBtn" style="display:none">
       Sign out
@@ -411,6 +419,7 @@
   <div id="panelTeamUtil"        class="tab-panel hidden"></div>
   <div id="panelClientBreakdown" class="tab-panel hidden"></div>
   <div id="panelCommission"      class="tab-panel hidden"></div>
+  <div id="panelLeadership"      class="tab-panel hidden"></div>
 
 </div>
 
@@ -450,6 +459,8 @@ let state = {
   teamUtil:        null,
   clientBreakdown: null,
   commissionData:  null,
+  leadership:      null,   // Leadership tab: revenue leakage + effective rate
+  isLeadership:    false,  // from getBootstrap; the API gate is the real control
   adminPin:        null,
   charts:          {},
   activeTab:       '',
@@ -523,6 +534,7 @@ async function init() {
     try {
       const boot = await api('getBootstrap');
       userList = boot.users; monthsArr = boot.months || []; meta = boot.meta;
+      state.isLeadership = !!boot.is_leadership;
     } catch (e) {
       const [ul, m, dm] = await Promise.all([api('getUserList'), api('getAvailableMonths'), api('getDataMeta')]);
       userList = ul; monthsArr = m.months || []; meta = dm;
@@ -670,6 +682,12 @@ function buildTabs() {
     if (state.currentUser.has_commission_package) tabs.push({ id: 'Commission', label: '💰 My Commission' });
   }
 
+  // 💼 Leadership — driven by the server's is_leadership flag (user_roles →
+  // leadership_access), independent of role/team so it doesn't matter which
+  // name you're viewing as. Hiding the tab is cosmetic; getLeadershipSummary
+  // is gated server-side.
+  if (state.isLeadership) tabs.push({ id: 'Leadership', label: '💼 Leadership' });
+
   // "Focus on team member" is available to everyone (defaults to self for
   // non-leadership; All for leadership) — anyone may switch focus.
   document.getElementById('ownerFilterWrap').style.display = 'flex';
@@ -714,6 +732,7 @@ async function onMonthChange() {
   state.teamUtil = null;
   state.clientBreakdown = null;
   state.commissionData = null;
+  state.leadership = null;
   await refreshData();
 }
 
@@ -736,6 +755,12 @@ async function refreshData() {
       showLoading('panelClientBreakdown');
       state.clientBreakdown = await api('getClientBreakdown', { month, email });
     }
+    if (tab === 'Leadership' && !state.leadership) {
+      showLoading('panelLeadership');
+      // All-team by design: leakage is a whole-business number, so the member
+      // filter deliberately doesn't scope it.
+      state.leadership = await api('getLeadershipSummary', { month });
+    }
     // Commission loaded on demand via PIN flow
   } catch (e) {
     console.error(e);
@@ -750,6 +775,7 @@ function renderActiveTab() {
   if (tab === 'TeamUtil')        renderTeamUtil();
   if (tab === 'ClientBreakdown') renderClientBreakdown();
   if (tab === 'Commission')      renderCommission();
+  if (tab === 'Leadership')      renderLeadership();
 }
 
 function showLoading(panelId) {
@@ -2265,14 +2291,110 @@ async function submitPin() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// LEADERSHIP — revenue leakage & effective rate
+// ═══════════════════════════════════════════════════════════════════════════
+// The three leakage measures mean different things and must not be added
+// together: written-off is money lost, approved-unused is money authorised but
+// never earned, and under-base is money billed for work we didn't do (which
+// helps this month's margin but is a client-value risk).
+function renderLeadership() {
+  const el = document.getElementById('panelLeadership');
+  const d  = state.leadership;
+  if (!d)      { el.innerHTML = '<div class="empty">No data.</div>'; return; }
+  if (d.error) { el.innerHTML = `<div class="empty">${esc(d.message || d.error)}</div>`; return; }
+
+  const t = d.totals || {};
+  const clients = d.clients || [];
+  const m  = n => '$' + Math.round(n || 0).toLocaleString();
+  const h  = n => (n || 0).toFixed(1);
+  const mz = n => (n ? m(n) : '<span class="lead-zero">—</span>');   // hide zeros: only exceptions matter
+
+  const tiles = `
+    <div class="kpi-row">
+      <div class="kpi brand"><div class="kpi-label">Revenue</div><div class="kpi-value">${m(t.revenue)}</div>
+        <div class="kpi-sub">${h(t.billable_h)} billable hours<br>fees (capped) + flexi</div></div>
+      <div class="kpi"><div class="kpi-label">Effective Rate</div>
+        <div class="kpi-value">${t.effective_rate != null ? '$' + t.effective_rate.toFixed(2) : '—'}</div>
+        <div class="kpi-sub">revenue ÷ billable hours<br>every agreement type combined</div></div>
+      <div class="kpi danger"><div class="kpi-label">Written Off</div><div class="kpi-value">${m(t.written_off_value)}</div>
+        <div class="kpi-sub">${h(t.written_off_h)} h delivered beyond<br>budget — we can't bill it</div></div>
+      <div class="kpi warning"><div class="kpi-label">Approved, Unused</div><div class="kpi-value">${m(t.unused_additional_value)}</div>
+        <div class="kpi-sub">${h(t.unused_additional_h)} h approved but<br>never used — not billed</div></div>
+      <div class="kpi"><div class="kpi-label">Base Under-delivered</div><div class="kpi-value">${m(t.under_base_value)}</div>
+        <div class="kpi-sub">${h(t.under_base_h)} h billed but not<br>delivered — client value risk</div></div>
+    </div>`;
+
+  const rows = clients.map((c, i) => {
+    const projs = c.projects || [];
+    const sub = projs.map(p => `
+      <tr class="lead-proj lead-proj-${i} hidden">
+        <td style="padding-left:30px">↳ ${esc(p.project_name)}<span class="lead-type">${esc(p.agreement_type)}</span></td>
+        <td class="num">${mz(p.revenue)}</td>
+        <td class="num">${h(p.billable_used)}</td>
+        <td class="num">${p.rate ? '$' + p.rate.toFixed(2) : '<span class="lead-zero">—</span>'}</td>
+        <td class="num">${mz(p.written_off_value)}</td>
+        <td class="num">${mz(p.unused_additional_value)}</td>
+        <td class="num">${mz(p.under_base_value)}</td>
+      </tr>`).join('');
+    const caret = projs.length ? `<span class="lead-caret" id="leadCaret${i}">▸</span>` : '<span class="lead-caret"></span>';
+    return `
+      <tr class="lead-client"${projs.length ? ` onclick="toggleLeadClient(${i})" style="cursor:pointer"` : ''}>
+        <td>${caret}${esc(c.client_name)}</td>
+        <td class="num">${m(c.revenue)}</td>
+        <td class="num">${h(c.billable_h)}</td>
+        <td class="num">${c.effective_rate != null ? '$' + c.effective_rate.toFixed(2) : '<span class="lead-zero">—</span>'}</td>
+        <td class="num">${mz(c.written_off_value)}</td>
+        <td class="num">${mz(c.unused_additional_value)}</td>
+        <td class="num">${mz(c.under_base_value)}</td>
+      </tr>${sub}`;
+  }).join('');
+
+  const table = !clients.length ? '<div class="empty">No chargeable activity this month.</div>' : `
+    <div class="table-wrap"><table class="ph-table">
+      <thead><tr>
+        <th>Client</th><th class="num">Revenue</th><th class="num">Billable h</th><th class="num">Eff. $/h</th>
+        <th class="num">Written off</th><th class="num">Approved unused</th><th class="num">Under base</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+
+  el.innerHTML = `
+    ${tiles}
+    <div class="card" style="padding:0">
+      <div class="ph-section-head"><span class="ph-title">Revenue Leakage &amp; Effective Rate</span>
+        <span class="ph-meta">click a client to see its projects</span></div>
+      <div class="lead-note">
+        <b>Written off</b> — hours delivered past base + approved additional. The work is done and can't be billed; this is money out the door.
+        &nbsp;·&nbsp; <b>Approved unused</b> — additional hours approved but never worked. Not a loss, but authorised revenue that never landed.
+        &nbsp;·&nbsp; <b>Base under-delivered</b> — fee projects billed in full while delivering under base. Flatters this month, but the client is paying for capacity they aren't getting.
+        <br>These measure different things and deliberately don't sum. Flexi is excluded (uncapped — we bill what we work), as are cumulative projects (lifetime-to-date, so they can't be totalled per month).
+      </div>
+      ${table}
+    </div>`;
+}
+
+function toggleLeadClient(i) {
+  const rows = document.querySelectorAll('.lead-proj-' + i);
+  if (!rows.length) return;
+  const open = !rows[0].classList.contains('hidden');
+  rows.forEach(r => r.classList.toggle('hidden', open));
+  const caret = document.getElementById('leadCaret' + i);
+  if (caret) caret.textContent = open ? '▸' : '▾';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // LOGOUT
 // ═══════════════════════════════════════════════════════════════════════════
 function logout() {
   Object.values(state.charts).forEach(c => c.destroy());
+  // idToken + isLeadership survive: this is "switch which member I'm viewing as",
+  // not a Google sign-out. Dropping the token here forced a needless re-prompt.
   state = { users: state.users, availableMonths: state.availableMonths,
             selectedMonth: state.selectedMonth, charts: {},
             currentUser: null, projectHealth: null, teamUtil: null,
-            clientBreakdown: null, commissionData: null, adminPin: null, activeTab: '' };
+            clientBreakdown: null, commissionData: null, adminPin: null, activeTab: '',
+            leadership: null, isLeadership: state.isLeadership,
+            idToken: state.idToken, lastRefresh: state.lastRefresh };
   document.getElementById('dashboard').classList.add('hidden');
   document.getElementById('landing').classList.remove('hidden');
   document.getElementById('logoutBtn').style.display = 'none';
