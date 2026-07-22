@@ -199,6 +199,20 @@
   .badge-select:hover { color: var(--ink); }
   .badge-viewing { font-size: 10px; font-weight: 800; color: #fff; background: var(--brand);
     padding: 1px 6px; border-radius: 6px; text-transform: uppercase; letter-spacing: .3px; }
+  /* Leadership redesign: control bar + drill-in */
+  .lead-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 12px 20px; }
+  .lead-controls label { font-size: 12px; color: var(--text-muted); font-weight: 600; margin-right: 4px; }
+  .lead-controls select { font-size: 12px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+  .lead-controls .chk { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--ink); cursor: pointer; }
+  .lead-link { color: var(--brand); font-weight: 600; cursor: pointer; text-decoration: none; }
+  .lead-link:hover { text-decoration: underline; }
+  .lead-trend-btn { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--brand);
+    background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 5px 10px; cursor: pointer; }
+  .lead-back { font-size: 13px; font-weight: 700; color: var(--brand); background: #fff;
+    border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  .lead-sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+  .lead-sortable:hover { color: var(--ink); }
+  .lead-billable { color: var(--text-muted); }   /* billable-rate column, muted vs effective */
   /* Leadership tab */
   .lead-note { padding: 12px 20px 16px; font-size: 12.5px; color: var(--text-muted); line-height: 1.6; }
   .lead-note b { color: var(--ink); font-weight: 600; }
@@ -354,7 +368,7 @@
   <h1><span class="brand-dot"></span>Strictly Savvy<span class="header-sub">Team Dashboard</span></h1>
   <div class="header-right">
     <div class="data-meta" id="dataMeta"></div>
-    <span class="build-badge" title="build 2026-06-26·ah">&#9432;</span>
+    <span class="build-badge" title="build 2026-06-26·ai">&#9432;</span>
     <span class="refresh-info" id="refreshInfo"></span>
     <button class="btn btn-secondary btn-sm" onclick="logout()" id="logoutBtn" style="display:none">
       Sign out
@@ -476,7 +490,12 @@ let state = {
   me:              null,   // the signed-in person (auto-login), matched by Google email
   leadHistory:     null,   // Leadership trend: revenue/leakage over time
   leadClient:      '',     // '' = all clients
+  leadClientName:  '',     // label for the drill-in header
   leadMonths:      '12',
+  leadView:        'summary',  // 'summary' (clients+projects table) | 'client' (trend drill-in)
+  leadSort:        'writeoff', // writeoff | effrate | unused | underbase | revenue | name
+  leadShowAll:     false,   // false = only projects with leakage; true = all projects
+  leadTrendSort:   { key: 'writeoff', dir: -1 },  // per-project trend table sort
   adminPin:        null,
   charts:          {},
   activeTab:       '',
@@ -669,7 +688,7 @@ async function onViewAs() {
 function clearTabData_() {
   state.projectHealth = null; state.teamUtil = null; state.clientBreakdown = null;
   state.commissionData = null; state.leadership = null; state.leadHistory = null;
-  state.clientList = null;
+  state.clientList = null; state.leadView = 'summary';
 }
 
 // Show the name-picker landing and drop the sign-in gate (used only when we can't
@@ -858,6 +877,8 @@ async function onMonthChange() {
   state.clientBreakdown = null;
   state.commissionData = null;
   state.leadership = null;
+  state.leadHistory = null;
+  state.leadView = 'summary';   // don't strand in a client drill-in with old-month data
   await refreshData();
 }
 
@@ -2416,129 +2437,191 @@ async function submitPin() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// LEADERSHIP — revenue leakage & effective rate
+// RENDER: LEADERSHIP — revenue leakage & effective rate
 // ═══════════════════════════════════════════════════════════════════════════
-// The three leakage measures mean different things and must not be added
-// together: written-off is money lost, approved-unused is money authorised but
-// never earned, and under-base is money billed for work we didn't do (which
-// helps this month's margin but is a client-value risk).
+// Two spaces: a SUMMARY view (clients + projects this month, sortable/filterable)
+// and a per-client DRILL-IN with the performance-over-time chart, so the trend no
+// longer takes over the whole tab. Server: getLeadershipSummary / getLeadershipHistory.
+// The three leakage measures mean different things and never sum: written-off =
+// money lost; approved-unused = authorised but not earned; under-base = billed but
+// not delivered. Effective rate = revenue ÷ billable hours (one comparable axis).
+let leadChart = null;
+
+const LEAD_M    = n => '$' + Math.round(n || 0).toLocaleString();
+const LEAD_H    = n => (n || 0).toFixed(1);
+const LEAD_MZ   = n => (n ? LEAD_M(n) : '<span class="lead-zero">—</span>');
+const LEAD_RATE = n => (n != null ? '$' + Number(n).toFixed(2) : '<span class="lead-zero">—</span>');
+
 function renderLeadership() {
+  if (state.leadView === 'client') renderLeadClientView();
+  else renderLeadSummary();
+}
+
+// ── Sorting (shared by client rows and their project children) ───────────────
+function _leadCmp_(key) {
+  if (key === 'name') {
+    return (a, b) => (a.client_name || a.project_name || '').localeCompare(b.client_name || b.project_name || '');
+  }
+  if (key === 'effrate') {   // lowest realised rate first — the renegotiation list; nulls sink
+    return (a, b) => {
+      const an = a.effective_rate == null, bn = b.effective_rate == null;
+      if (an && bn) return 0; if (an) return 1; if (bn) return -1;
+      return a.effective_rate - b.effective_rate;
+    };
+  }
+  const f = { writeoff: 'written_off_value', unused: 'unused_additional_value',
+              underbase: 'under_base_value', revenue: 'revenue' }[key] || 'written_off_value';
+  return (a, b) => (b[f] || 0) - (a[f] || 0);
+}
+function sortLeadClients_(clients) { return clients.slice().sort(_leadCmp_(state.leadSort)); }
+function sortLeadProjects_(projs)  { return projs.slice().sort(_leadCmp_(state.leadSort)); }
+function setLeadSort(v)      { state.leadSort = v; renderLeadSummary(); }
+function toggleLeadShowAll() { state.leadShowAll = !state.leadShowAll; renderLeadSummary(); }
+
+function renderLeadSummary() {
   const el = document.getElementById('panelLeadership');
   const d  = state.leadership;
   if (!d)      { el.innerHTML = '<div class="empty">No data.</div>'; return; }
   if (d.error) { el.innerHTML = `<div class="empty">${esc(d.message || d.error)}</div>`; return; }
 
   const t = d.totals || {};
-  const clients = d.clients || [];
-  const m  = n => '$' + Math.round(n || 0).toLocaleString();
-  const h  = n => (n || 0).toFixed(1);
-  const mz = n => (n ? m(n) : '<span class="lead-zero">—</span>');   // hide zeros: only exceptions matter
+  const clients = sortLeadClients_(d.clients || []);
 
   const tiles = `
     <div class="kpi-row">
-      <div class="kpi brand"><div class="kpi-label">Revenue</div><div class="kpi-value">${m(t.revenue)}</div>
-        <div class="kpi-sub">${h(t.billable_h)} billable hours<br>fees (capped) + flexi</div></div>
+      <div class="kpi brand"><div class="kpi-label">Revenue</div><div class="kpi-value">${LEAD_M(t.revenue)}</div>
+        <div class="kpi-sub">${LEAD_H(t.billable_h)} billable hours<br>fees (capped) + flexi</div></div>
       <div class="kpi"><div class="kpi-label">Effective Rate</div>
         <div class="kpi-value">${t.effective_rate != null ? '$' + t.effective_rate.toFixed(2) : '—'}</div>
         <div class="kpi-sub">revenue ÷ billable hours<br>every agreement type combined</div></div>
-      <div class="kpi danger"><div class="kpi-label">Written Off</div><div class="kpi-value">${m(t.written_off_value)}</div>
-        <div class="kpi-sub">${h(t.written_off_h)} h delivered beyond<br>budget — we can't bill it</div></div>
-      <div class="kpi warning"><div class="kpi-label">Approved, Unused</div><div class="kpi-value">${m(t.unused_additional_value)}</div>
-        <div class="kpi-sub">${h(t.unused_additional_h)} h approved but<br>never used — not billed</div></div>
-      <div class="kpi"><div class="kpi-label">Base Under-delivered</div><div class="kpi-value">${m(t.under_base_value)}</div>
-        <div class="kpi-sub">${h(t.under_base_h)} h billed but not<br>delivered — client value risk</div></div>
+      <div class="kpi danger"><div class="kpi-label">Written Off</div><div class="kpi-value">${LEAD_M(t.written_off_value)}</div>
+        <div class="kpi-sub">${LEAD_H(t.written_off_h)} h delivered beyond<br>budget — we can't bill it</div></div>
+      <div class="kpi warning"><div class="kpi-label">Approved, Unused</div><div class="kpi-value">${LEAD_M(t.unused_additional_value)}</div>
+        <div class="kpi-sub">${LEAD_H(t.unused_additional_h)} h approved but<br>never used — not billed</div></div>
+      <div class="kpi"><div class="kpi-label">Base Under-delivered</div><div class="kpi-value">${LEAD_M(t.under_base_value)}</div>
+        <div class="kpi-sub">${LEAD_H(t.under_base_h)} h billed but not<br>delivered — client value risk</div></div>
+    </div>`;
+
+  const sortOpts = [
+    ['writeoff', 'Written off (high→low)'],
+    ['effrate', 'Effective rate (low→high)'],
+    ['unused', 'Approved unused (high→low)'],
+    ['underbase', 'Under base (high→low)'],
+    ['revenue', 'Revenue (high→low)'],
+    ['name', 'Client name (A–Z)'],
+  ].map(([v, l]) => `<option value="${v}"${state.leadSort === v ? ' selected' : ''}>${l}</option>`).join('');
+
+  const controls = `
+    <div class="lead-controls">
+      <div><label>Sort</label><select onchange="setLeadSort(this.value)">${sortOpts}</select></div>
+      <label class="chk"><input type="checkbox" ${state.leadShowAll ? 'checked' : ''} onchange="toggleLeadShowAll()"> Show all projects (not just leakage)</label>
+      <button class="lead-trend-btn" onclick="leadDrillClient('')">📈 Trend — all clients</button>
     </div>`;
 
   const rows = clients.map((c, i) => {
-    const projs = c.projects || [];
+    const projs = sortLeadProjects_((c.projects || []).filter(p => state.leadShowAll || p.has_leakage));
     const sub = projs.map(p => `
       <tr class="lead-proj lead-proj-${i} hidden">
         <td style="padding-left:30px">↳ ${esc(p.project_name)}<span class="lead-type">${esc(p.agreement_type)}${
-          p.life_billable_used != null
-            ? ` · ${h(p.life_billable_used)} h of ${h(p.budget_hours)} lifetime`
-            : ''}</span></td>
-        <td class="num">${mz(p.revenue)}</td>
-        <td class="num">${h(p.billable_used)}</td>
-        <td class="num">${p.rate ? '$' + p.rate.toFixed(2) : '<span class="lead-zero">—</span>'}</td>
-        <td class="num">${mz(p.written_off_value)}</td>
-        <td class="num">${mz(p.unused_additional_value)}</td>
-        <td class="num">${mz(p.under_base_value)}</td>
+          p.life_billable_used != null ? ` · ${LEAD_H(p.life_billable_used)} h of ${LEAD_H(p.budget_hours)} lifetime` : ''}</span></td>
+        <td class="num">${LEAD_MZ(p.revenue)}</td>
+        <td class="num">${LEAD_H(p.billable_used)}</td>
+        <td class="num lead-billable">${p.rate ? '$' + p.rate.toFixed(2) : '<span class="lead-zero">—</span>'}</td>
+        <td class="num">${LEAD_RATE(p.effective_rate)}</td>
+        <td class="num">${LEAD_MZ(p.written_off_value)}</td>
+        <td class="num">${LEAD_MZ(p.unused_additional_value)}</td>
+        <td class="num">${LEAD_MZ(p.under_base_value)}</td>
       </tr>`).join('');
-    const caret = projs.length ? `<span class="lead-caret" id="leadCaret${i}">▸</span>` : '<span class="lead-caret"></span>';
     return `
-      <tr class="lead-client"${projs.length ? ` onclick="toggleLeadClient(${i})" style="cursor:pointer"` : ''}>
-        <td>${caret}${esc(c.client_name)}</td>
-        <td class="num">${m(c.revenue)}</td>
-        <td class="num">${h(c.billable_h)}</td>
+      <tr class="lead-client">
+        <td>
+          <span class="lead-caret" id="leadCaret${i}"${projs.length ? ` onclick="toggleLeadClient(${i})" style="cursor:pointer"` : ''}>${projs.length ? '▸' : ''}</span>
+          <a class="lead-link" onclick="leadDrillClient('${esc(c.client_id || '')}')">${esc(c.client_name)}</a>
+        </td>
+        <td class="num">${LEAD_M(c.revenue)}</td>
+        <td class="num">${LEAD_H(c.billable_h)}</td>
+        <td class="num lead-billable"></td>
         <td class="num">${c.effective_rate != null ? '$' + c.effective_rate.toFixed(2) : '<span class="lead-zero">—</span>'}</td>
-        <td class="num">${mz(c.written_off_value)}</td>
-        <td class="num">${mz(c.unused_additional_value)}</td>
-        <td class="num">${mz(c.under_base_value)}</td>
+        <td class="num">${LEAD_MZ(c.written_off_value)}</td>
+        <td class="num">${LEAD_MZ(c.unused_additional_value)}</td>
+        <td class="num">${LEAD_MZ(c.under_base_value)}</td>
       </tr>${sub}`;
   }).join('');
 
   const table = !clients.length ? '<div class="empty">No chargeable activity this month.</div>' : `
     <div class="table-wrap"><table class="ph-table">
       <thead><tr>
-        <th>Client</th><th class="num">Revenue</th><th class="num">Billable h</th><th class="num">Eff. $/h</th>
+        <th>Client / Project</th><th class="num">Revenue</th><th class="num">Billable h</th>
+        <th class="num">Billable $/h</th><th class="num">Eff. $/h</th>
         <th class="num">Written off</th><th class="num">Approved unused</th><th class="num">Under base</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
 
-  // Client options for the trend picker, drawn from this month's activity.
-  const opts = ['<option value="">All clients</option>']
-    .concat(clients.map(c => `<option value="${esc(c.client_id || '')}">${esc(c.client_name)}</option>`))
-    .join('');
-
-  const trend = `
-    <div class="card" style="padding:0; margin-bottom:20px">
-      <div class="ph-section-head"><span class="ph-title">Performance Over Time</span>
-        <span class="ph-meta">revenue vs written off, and the rate we actually realise</span></div>
-      <div class="ch-controls" style="padding:14px 20px 0">
-        <div class="ctrl-group"><label>Client</label>
-          <select id="leadClientSel" onchange="onLeadTrendChange()">${opts}</select></div>
-        <div class="ctrl-group" style="max-width:180px"><label>Period</label>
-          <select id="leadMonthsSel" onchange="onLeadTrendChange()">
-            <option value="6">Last 6 months</option>
-            <option value="12" selected>Last 12 months</option>
-          </select></div>
-      </div>
-      <div id="leadTrendArea" style="padding:8px 20px 20px"></div>
-    </div>`;
-
   el.innerHTML = `
     ${tiles}
-    ${trend}
     <div class="card" style="padding:0">
       <div class="ph-section-head"><span class="ph-title">Revenue Leakage &amp; Effective Rate</span>
-        <span class="ph-meta">this month · click a client to see its projects</span></div>
+        <span class="ph-meta">this month · click a client name for its trend</span></div>
+      ${controls}
       <div class="lead-note">
-        <b>Written off</b> — hours delivered past base + approved additional. The work is done and can't be billed; this is money out the door.
+        <b>Written off</b> — hours delivered past base + approved additional. The work is done and can't be billed; money out the door.
         &nbsp;·&nbsp; <b>Approved unused</b> — additional hours approved but never worked. Not a loss, but authorised revenue that never landed.
         &nbsp;·&nbsp; <b>Base under-delivered</b> — fee projects billed in full while delivering under base. Flatters this month, but the client is paying for capacity they aren't getting.
-        <br>These measure different things and deliberately don't sum. Fixed-fee / Project work counts toward <b>written off</b>: once past its total budget the fee is capped, so every further hour is unbillable — recognised in the month the hours crossed the line. Flexi is excluded throughout (uncapped — we bill what we work).
+        &nbsp;·&nbsp; <b>Billable $/h</b> is the contract rate; <b>Eff. $/h</b> is revenue ÷ hours actually delivered — the gap is where a plan is quietly under-priced.
+        <br>These measure different things and deliberately don't sum. Fixed-fee / Project work counts toward <b>written off</b> once past its total budget. Flexi is excluded (uncapped — we bill what we work).
       </div>
       ${table}
     </div>`;
+}
 
-  // Re-renders rebuild the DOM, so restore the pickers, then draw from cache or fetch.
-  const cs = document.getElementById('leadClientSel');
+function toggleLeadClient(i) {
+  const rows = document.querySelectorAll('.lead-proj-' + i);
+  if (!rows.length) return;
+  const open = !rows[0].classList.contains('hidden');
+  rows.forEach(r => r.classList.toggle('hidden', open));
+  const caret = document.getElementById('leadCaret' + i);
+  if (caret) caret.textContent = open ? '▸' : '▾';
+}
+
+// ── Per-client drill-in: performance over time in its own space ──────────────
+function leadDrillClient(clientId) {
+  const c = ((state.leadership && state.leadership.clients) || []).find(x => (x.client_id || '') === clientId);
+  state.leadClient = clientId;
+  state.leadClientName = clientId ? (c ? c.client_name : '—') : 'All clients';
+  state.leadView = 'client';
+  state.leadHistory = null;   // fetch fresh for this client
+  renderLeadership();
+}
+function leadBackToSummary() {
+  state.leadView = 'summary';
+  renderLeadership();
+}
+
+function renderLeadClientView() {
+  const el = document.getElementById('panelLeadership');
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;flex-wrap:wrap">
+      <button class="lead-back" onclick="leadBackToSummary()">← All clients</button>
+      <span class="ph-title">${esc(state.leadClientName || '—')} · performance over time</span>
+    </div>
+    <div class="card" style="padding:0">
+      <div class="ch-controls" style="padding:14px 20px 0">
+        <div class="ctrl-group" style="max-width:180px"><label>Period</label>
+          <select id="leadMonthsSel" onchange="onLeadTrendChange()">
+            <option value="6">Last 6 months</option>
+            <option value="12">Last 12 months</option>
+          </select></div>
+      </div>
+      <div id="leadTrendArea" style="padding:8px 20px 20px"><div class="loading"><div class="loading-spinner"></div></div></div>
+    </div>`;
   const ms = document.getElementById('leadMonthsSel');
-  if (cs) cs.value = state.leadClient || '';
   if (ms) ms.value = state.leadMonths || '12';
   if (state.leadHistory) renderLeadTrend(); else onLeadTrendChange();
 }
 
-// Trend: revenue vs written-off per month, with the realised rate as a line.
-// Fetched separately from the monthly summary because it has its own client and
-// period pickers — the tab's tiles stay on the selected month regardless.
-let leadChart = null;
-
 async function onLeadTrendChange() {
-  const cs = document.getElementById('leadClientSel');
   const ms = document.getElementById('leadMonthsSel');
-  if (cs) state.leadClient = cs.value;
   if (ms) state.leadMonths = ms.value;
   const area = document.getElementById('leadTrendArea');
   if (area) area.innerHTML = '<div class="loading"><div class="loading-spinner"></div></div>';
@@ -2552,6 +2635,30 @@ async function onLeadTrendChange() {
   renderLeadTrend();
 }
 
+// ── Per-project trend table sorting (clickable headers) ──────────────────────
+function setLeadTrendSort(key) {
+  const s = state.leadTrendSort;
+  if (s.key === key) s.dir = -s.dir;
+  else { s.key = key; s.dir = key === 'name' ? 1 : -1; }
+  renderLeadTrend();
+}
+function sortLeadTrendProjects_(projs) {
+  const key = state.leadTrendSort.key, dir = state.leadTrendSort.dir;
+  const arr = projs.slice();
+  if (key === 'name') {
+    arr.sort((a, b) => dir * (a.project_name || '').localeCompare(b.project_name || ''));
+  } else if (key === 'effective_rate') {
+    arr.sort((a, b) => {   // nulls always last, regardless of direction
+      const an = a.effective_rate == null, bn = b.effective_rate == null;
+      if (an && bn) return 0; if (an) return 1; if (bn) return -1;
+      return dir * (a.effective_rate - b.effective_rate);
+    });
+  } else {
+    arr.sort((a, b) => dir * ((a[key] || 0) - (b[key] || 0)));
+  }
+  return arr;
+}
+
 function renderLeadTrend() {
   const area = document.getElementById('leadTrendArea');
   if (!area) return;
@@ -2560,26 +2667,32 @@ function renderLeadTrend() {
     area.innerHTML = `<div class="empty">${esc((d && (d.message || d.error)) || 'No data.')}</div>`;
     return;
   }
-  const M = d.months || [], P = d.projects || [];
+  const M = d.months || [], P = sortLeadTrendProjects_(d.projects || []);
   if (!M.length) { area.innerHTML = '<div class="empty">No activity in this period.</div>'; return; }
 
-  const m  = n => '$' + Math.round(n || 0).toLocaleString();
-  const h  = n => (n || 0).toFixed(1);
-  const rate = n => n != null ? '$' + n.toFixed(2) : '<span class="lead-zero">—</span>';
-
+  const sortHdr = (key, label, cls) => {
+    const on = state.leadTrendSort.key === key;
+    const arrow = on ? (state.leadTrendSort.dir < 0 ? ' ▾' : ' ▴') : '';
+    return `<th class="${cls || ''} lead-sortable" onclick="setLeadTrendSort('${key}')">${label}${arrow}</th>`;
+  };
   const projTable = !P.length ? '' : `
     <div class="table-wrap" style="margin-top:16px"><table class="ph-table">
-      <thead><tr><th>Project</th><th class="num">Revenue</th><th class="num">Billable h</th>
-        <th class="num">Eff. $/h</th><th class="num">Written off</th></tr></thead>
+      <thead><tr>
+        ${sortHdr('name', 'Project', '')}
+        ${sortHdr('revenue', 'Revenue', 'num')}
+        ${sortHdr('billable_h', 'Billable h', 'num')}
+        ${sortHdr('effective_rate', 'Eff. $/h', 'num')}
+        ${sortHdr('written_off_value', 'Written off', 'num')}
+      </tr></thead>
       <tbody>${P.map(p => `
         <tr${p.written_off_value > 0 ? ' style="background:rgba(192,57,43,.05)"' : ''}>
           <td>${esc(p.project_name)}<span class="lead-type">${esc(p.agreement_type)}${
             p.tracking === 'cumulative' ? ' · cumulative' : ''}${
             d.client_id ? '' : ' · ' + esc(p.client_name || '')}</span></td>
-          <td class="num">${m(p.revenue)}</td>
-          <td class="num">${h(p.billable_h)}</td>
-          <td class="num">${rate(p.effective_rate)}</td>
-          <td class="num">${p.written_off_value ? m(p.written_off_value) : '<span class="lead-zero">—</span>'}</td>
+          <td class="num">${LEAD_M(p.revenue)}</td>
+          <td class="num">${LEAD_H(p.billable_h)}</td>
+          <td class="num">${LEAD_RATE(p.effective_rate)}</td>
+          <td class="num">${p.written_off_value ? LEAD_M(p.written_off_value) : '<span class="lead-zero">—</span>'}</td>
         </tr>`).join('')}</tbody>
     </table></div>`;
 
@@ -2587,7 +2700,7 @@ function renderLeadTrend() {
   area.innerHTML = `
     <div class="ph-chart-wrap" style="height:340px"><canvas id="leadTrendChart"></canvas></div>
     <div class="text-sm text-muted" style="padding-top:6px">
-      ${esc(d.client_name)} · ${M.length} months · ${m(totWritten)} written off over the period.
+      ${esc(d.client_name)} · ${M.length} months · ${LEAD_M(totWritten)} written off over the period.
       Fixed-fee write-offs land in the month the hours crossed the budget.
     </div>
     ${projTable}`;
@@ -2624,15 +2737,6 @@ function renderLeadTrend() {
     },
   });
   state.tuChartInstances.push(leadChart);   // cleaned up on view switch
-}
-
-function toggleLeadClient(i) {
-  const rows = document.querySelectorAll('.lead-proj-' + i);
-  if (!rows.length) return;
-  const open = !rows[0].classList.contains('hidden');
-  rows.forEach(r => r.classList.toggle('hidden', open));
-  const caret = document.getElementById('leadCaret' + i);
-  if (caret) caret.textContent = open ? '▸' : '▾';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
