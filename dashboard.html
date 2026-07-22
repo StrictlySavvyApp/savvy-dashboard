@@ -344,7 +344,7 @@
   <h1><span class="brand-dot"></span>Strictly Savvy<span class="header-sub">Team Dashboard</span></h1>
   <div class="header-right">
     <div class="data-meta" id="dataMeta"></div>
-    <span class="build-badge" title="build 2026-06-26·ad">&#9432;</span>
+    <span class="build-badge" title="build 2026-06-26·ae">&#9432;</span>
     <span class="refresh-info" id="refreshInfo"></span>
     <button class="btn btn-secondary btn-sm" onclick="logout()" id="logoutBtn" style="display:none">
       Sign out
@@ -355,7 +355,7 @@
 <!-- ═══════════════════════════════════════════════════════════════════════════
      LANDING SCREEN
 ══════════════════════════════════════════════════════════════════════════════ -->
-<div id="landing" class="hidden">
+<div id="landing">
   <div class="landing-card">
     <div class="logo">📊</div>
     <h2>Welcome</h2>
@@ -2728,20 +2728,18 @@ function onGoogleCredential(resp) {
   const firstTime = !state.idToken;          // distinguish first sign-in from a silent refresh
   state.idToken = resp.credential;           // verified server-side on every call
   document.getElementById('signinErr').textContent = '';
+  // Reveal the app immediately. The landing (name picker) is visible by default,
+  // so the page is usable even if auto-login can't identify the user — DO NOT gate
+  // this behind onGoogleCredential firing, because One Tap/FedCM can fail silently
+  // and then nothing would ever reveal the page (this caused a total load failure).
+  document.getElementById('signinGate').style.display = 'none';
   // Wake any in-flight requests waiting on a fresh token (silent re-auth).
   const waiters = _tokenWaiters; _tokenWaiters = [];
   waiters.forEach(function (r) { try { r(resp.credential); } catch (e) {} });
   // Only bootstrap on the FIRST sign-in — a mid-session token refresh must NOT
   // re-run init() (that would bounce the user back to the landing screen).
-  if (firstTime) {
-    // Keep the branded gate up as a "Signing you in…" screen while init() decides
-    // where to land — otherwise the name-picker landing flashes during bootstrap.
-    const msg = document.getElementById('signinMsg'); if (msg) msg.textContent = 'Signing you in…';
-    const g = document.getElementById('gbtn');        if (g)   g.style.display = 'none';
-    init();
-    startProactiveTokenRefresh();
-  }
-  // A silent mid-session refresh leaves the gate as-is (already hidden).
+  // init() will auto-load the identified user (state.me), replacing the landing.
+  if (firstTime) { init(); startProactiveTokenRefresh(); }
 }
 
 // Called when the Google Identity Services library has loaded (see script tag below).
