@@ -344,7 +344,7 @@
   <h1><span class="brand-dot"></span>Strictly Savvy<span class="header-sub">Team Dashboard</span></h1>
   <div class="header-right">
     <div class="data-meta" id="dataMeta"></div>
-    <span class="build-badge" title="build 2026-06-26·ab">&#9432;</span>
+    <span class="build-badge" title="build 2026-06-26·ac">&#9432;</span>
     <span class="refresh-info" id="refreshInfo"></span>
     <button class="btn btn-secondary btn-sm" onclick="logout()" id="logoutBtn" style="display:none">
       Sign out
@@ -355,7 +355,7 @@
 <!-- ═══════════════════════════════════════════════════════════════════════════
      LANDING SCREEN
 ══════════════════════════════════════════════════════════════════════════════ -->
-<div id="landing">
+<div id="landing" class="hidden">
   <div class="landing-card">
     <div class="logo">📊</div>
     <h2>Welcome</h2>
@@ -408,6 +408,13 @@
         </div>
       </div>
       <div id="currentUserBadge" style="font-size:13px; color:var(--text-muted);"></div>
+      <!-- Leadership only: view the dashboard scoped to another team member -->
+      <div id="viewAsWrap" style="display:none; align-items:center; gap:6px;">
+        <label for="viewAsSel" style="font-size:12px; color:var(--text-muted); font-weight:600;">View as</label>
+        <select id="viewAsSel" onchange="onViewAs()" style="font-size:12px; padding:4px 8px; border:1px solid var(--border); border-radius:8px; background:#fff;"></select>
+        <button id="viewAsReset" onclick="resetViewAs()" title="Back to my own view"
+          style="display:none; font-size:12px; font-weight:700; color:var(--brand); background:#fff; border:1px solid var(--border); border-radius:8px; padding:4px 8px; cursor:pointer;">↩ Me</button>
+      </div>
     </div>
   </div>
 
@@ -531,6 +538,10 @@ function startProactiveTokenRefresh() {
 function handleAuthError(data) {
   const gate = document.getElementById('signinGate');
   if (gate) gate.style.display = 'flex';
+  // Restore the sign-in button + prompt (onGoogleCredential hides/relabels them
+  // during the "Signing you in…" state) so a fresh manual sign-in is possible.
+  const g = document.getElementById('gbtn');     if (g) g.style.display = 'flex';
+  const msg = document.getElementById('signinMsg'); if (msg) msg.textContent = 'Sign in with your Google account to continue.';
   const err = document.getElementById('signinErr');
   if (err) err.textContent = (data && data.reason === 'denied')
     ? (data.message || 'This account is not on the access list.')
@@ -583,16 +594,66 @@ async function init() {
     // the "select your name" step and load them straight in. The picker on the
     // landing screen stays populated as a fallback / manual switch (see logout).
     if (state.me) {
-      await loadDashboard(state.me);
+      await loadDashboard(state.me);           // hides the gate, shows the dashboard
       const first = (state.me.name || '').split(' ')[0] || 'there';
       flashToast(`Welcome, ${first}`);
+    } else {
+      // No auto-match (e.g. a legacy allowlist entry) — fall back to the picker.
+      revealLanding_();
     }
 
   } catch (e) {
     document.getElementById('landingError').textContent =
       '⚠️ Could not connect to data source. Check the API_BASE URL is set correctly.';
     console.error(e);
+    revealLanding_();                          // so the error is actually visible
   }
+}
+
+// ── Leadership "View as" ─────────────────────────────────────────────────────
+function renderViewAs_() {
+  const wrap = document.getElementById('viewAsWrap');
+  if (!wrap) return;
+  if (!state.isLeadership) { wrap.style.display = 'none'; return; }   // real identity only
+  const sel = document.getElementById('viewAsSel');
+  const cur = (state.currentUser && state.currentUser.email) || '';
+  sel.innerHTML = (state.users || [])
+    .map(u => `<option value="${esc(u.email)}"${u.email === cur ? ' selected' : ''}>${esc(u.name)} · ${esc(u.team_label)}</option>`)
+    .join('');
+  wrap.style.display = 'flex';
+  // "Back to me" appears only while scoped to someone other than the signed-in user.
+  const meEmail = (state.me && state.me.email) || '';
+  document.getElementById('viewAsReset').style.display = (cur && cur !== meEmail) ? 'inline-block' : 'none';
+}
+
+async function onViewAs() {
+  const email = document.getElementById('viewAsSel').value;
+  const u = (state.me && email === state.me.email) ? state.me
+          : (state.users || []).find(x => x.email === email);
+  if (!u) return;
+  clearTabData_();                 // cached data belongs to the previous identity
+  await loadDashboard(u);
+}
+
+function resetViewAs() {
+  if (!state.me) return;
+  clearTabData_();
+  loadDashboard(state.me);
+}
+
+// Drop every tab's cached payload — used when the effective identity changes so a
+// stale, wrongly-scoped view isn't shown.
+function clearTabData_() {
+  state.projectHealth = null; state.teamUtil = null; state.clientBreakdown = null;
+  state.commissionData = null; state.leadership = null; state.leadHistory = null;
+  state.clientList = null;
+}
+
+// Show the name-picker landing and drop the sign-in gate (used only when we can't
+// auto-login the signed-in user).
+function revealLanding_() {
+  document.getElementById('signinGate').style.display = 'none';
+  document.getElementById('landing').classList.remove('hidden');
 }
 
 function renderDataMeta(meta) {
@@ -623,6 +684,10 @@ async function loadDashboard(userObj) {
   if (!user) return;
   state.currentUser = user;
 
+  // Auto-login calls this while the sign-in gate is still up — drop it now.
+  document.getElementById('signinGate').style.display = 'none';
+  document.getElementById('landing').classList.add('hidden');
+
   // Default the Project Health focus: leadership team → all team members;
   // everyone else → focused on themselves.
   const isLeadership = (state.currentUser.team_label || '').toLowerCase() === 'leadership';
@@ -642,6 +707,11 @@ async function loadDashboard(userObj) {
   // Set current user badge
   document.getElementById('currentUserBadge').textContent =
     `👤 ${state.currentUser.name} · ${state.currentUser.team_label}`;
+
+  // Leadership "View as": scope the whole view to any member. Visibility keys on
+  // the REAL signed-in identity (state.isLeadership), never on currentUser, so
+  // scoping to a non-leader can't hide the control and strand them.
+  renderViewAs_();
 
   // Build month selector
   buildMonthSelector();
@@ -2658,13 +2728,20 @@ function onGoogleCredential(resp) {
   const firstTime = !state.idToken;          // distinguish first sign-in from a silent refresh
   state.idToken = resp.credential;           // verified server-side on every call
   document.getElementById('signinErr').textContent = '';
-  document.getElementById('signinGate').style.display = 'none';
   // Wake any in-flight requests waiting on a fresh token (silent re-auth).
   const waiters = _tokenWaiters; _tokenWaiters = [];
   waiters.forEach(function (r) { try { r(resp.credential); } catch (e) {} });
   // Only bootstrap on the FIRST sign-in — a mid-session token refresh must NOT
   // re-run init() (that would bounce the user back to the landing screen).
-  if (firstTime) { init(); startProactiveTokenRefresh(); }
+  if (firstTime) {
+    // Keep the branded gate up as a "Signing you in…" screen while init() decides
+    // where to land — otherwise the name-picker landing flashes during bootstrap.
+    const msg = document.getElementById('signinMsg'); if (msg) msg.textContent = 'Signing you in…';
+    const g = document.getElementById('gbtn');        if (g)   g.style.display = 'none';
+    init();
+    startProactiveTokenRefresh();
+  }
+  // A silent mid-session refresh leaves the gate as-is (already hidden).
 }
 
 // Called when the Google Identity Services library has loaded (see script tag below).
