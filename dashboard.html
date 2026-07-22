@@ -344,7 +344,7 @@
   <h1><span class="brand-dot"></span>Strictly Savvy<span class="header-sub">Team Dashboard</span></h1>
   <div class="header-right">
     <div class="data-meta" id="dataMeta"></div>
-    <span class="build-badge" title="build 2026-06-26·ac">&#9432;</span>
+    <span class="build-badge" title="build 2026-06-26·ad">&#9432;</span>
     <span class="refresh-info" id="refreshInfo"></span>
     <button class="btn btn-secondary btn-sm" onclick="logout()" id="logoutBtn" style="display:none">
       Sign out
@@ -2755,9 +2755,9 @@ function onGisLoaded() {
     client_id: GOOGLE_CLIENT_ID,
     callback: onGoogleCredential,
     auto_select: true,               // silently re-signs in a returning, still-valid user
-    use_fedcm_for_prompt: true,      // supported silent-renewal path in modern Chrome
-                                     // (One Tap alone became unreliable as 3p-cookies
-                                     // were deprecated — a big cause of hourly bumps)
+    // NOTE: use_fedcm_for_prompt was tried here to harden silent renewal, but it
+    // rejected with a FedCM NetworkError and hung sign-in — removed. The classic
+    // One Tap flow is the working path; the proactive 50-min refresh still reduces bumps.
   });
   google.accounts.id.renderButton(document.getElementById('gbtn'),
     { theme: 'filled_blue', size: 'large', text: 'signin_with', shape: 'pill' });
