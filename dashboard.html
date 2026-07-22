@@ -368,7 +368,7 @@
   <h1><span class="brand-dot"></span>Strictly Savvy<span class="header-sub">Team Dashboard</span></h1>
   <div class="header-right">
     <div class="data-meta" id="dataMeta"></div>
-    <span class="build-badge" title="build 2026-06-26·ai">&#9432;</span>
+    <span class="build-badge" title="build 2026-06-26·aj">&#9432;</span>
     <span class="refresh-info" id="refreshInfo"></span>
     <button class="btn btn-secondary btn-sm" onclick="logout()" id="logoutBtn" style="display:none">
       Sign out
@@ -492,10 +492,10 @@ let state = {
   leadClient:      '',     // '' = all clients
   leadClientName:  '',     // label for the drill-in header
   leadMonths:      '12',
-  leadView:        'summary',  // 'summary' (clients+projects table) | 'client' (trend drill-in)
+  leadView:        'month',     // 'summary' (clients+projects table) | 'client' (trend drill-in)
   leadSort:        'writeoff', // writeoff | effrate | unused | underbase | revenue | name
   leadShowAll:     false,   // false = only projects with leakage; true = all projects
-  leadTrendSort:   { key: 'writeoff', dir: -1 },  // per-project trend table sort
+  leadTrendSort:   { key: 'written_off_value', dir: -1 },  // per-project trend table sort
   adminPin:        null,
   charts:          {},
   activeTab:       '',
@@ -688,7 +688,7 @@ async function onViewAs() {
 function clearTabData_() {
   state.projectHealth = null; state.teamUtil = null; state.clientBreakdown = null;
   state.commissionData = null; state.leadership = null; state.leadHistory = null;
-  state.clientList = null; state.leadView = 'summary';
+  state.clientList = null; state.leadView = 'month';
 }
 
 // Show the name-picker landing and drop the sign-in gate (used only when we can't
@@ -878,7 +878,7 @@ async function onMonthChange() {
   state.commissionData = null;
   state.leadership = null;
   state.leadHistory = null;
-  state.leadView = 'summary';   // don't strand in a client drill-in with old-month data
+  state.leadView = 'month';   // don't strand in a client drill-in with old-month data
   await refreshData();
 }
 
@@ -2439,22 +2439,36 @@ async function submitPin() {
 // ═══════════════════════════════════════════════════════════════════════════
 // RENDER: LEADERSHIP — revenue leakage & effective rate
 // ═══════════════════════════════════════════════════════════════════════════
-// Two spaces: a SUMMARY view (clients + projects this month, sortable/filterable)
-// and a per-client DRILL-IN with the performance-over-time chart, so the trend no
-// longer takes over the whole tab. Server: getLeadershipSummary / getLeadershipHistory.
-// The three leakage measures mean different things and never sum: written-off =
-// money lost; approved-unused = authorised but not earned; under-base = billed but
-// not delivered. Effective rate = revenue ÷ billable hours (one comparable axis).
+// Mirrors Project Health's shape: a "This Month" / "Client History" segmented
+// toggle. This Month = clients+projects leakage table (sortable/filterable).
+// Client History = per-client (or all-clients) performance-over-time chart + a
+// sortable per-project table, with a client selector like PH's Client History.
+// The three leakage measures never sum: written-off = money lost; approved-unused
+// = authorised not earned; under-base = billed but not delivered. Effective rate
+// = revenue ÷ billable hours (one comparable axis).
 let leadChart = null;
 
 const LEAD_M    = n => '$' + Math.round(n || 0).toLocaleString();
 const LEAD_H    = n => (n || 0).toFixed(1);
 const LEAD_MZ   = n => (n ? LEAD_M(n) : '<span class="lead-zero">—</span>');
-const LEAD_RATE = n => (n != null ? '$' + Number(n).toFixed(2) : '<span class="lead-zero">—</span>');
+const LEAD_RATE = n => (n ? '$' + Number(n).toFixed(2) : '<span class="lead-zero">—</span>');
+
+function setLeadView(v) { state.leadView = v; renderLeadership(); }
 
 function renderLeadership() {
-  if (state.leadView === 'client') renderLeadClientView();
-  else renderLeadSummary();
+  const panel = document.getElementById('panelLeadership');
+  if (!panel) return;
+  const toggle = `
+    <div class="ph-view-toggle">
+      <button class="ph-vbtn ${state.leadView !== 'history' ? 'active' : ''}" onclick="setLeadView('month')">This Month</button>
+      <button class="ph-vbtn ${state.leadView === 'history' ? 'active' : ''}" onclick="setLeadView('history')">Client History</button>
+    </div>`;
+  if (state.leadView === 'history') {
+    panel.innerHTML = toggle + renderLeadHistoryShell();
+    initLeadHistory();
+    return;
+  }
+  panel.innerHTML = toggle + buildLeadMonthHtml();
 }
 
 // ── Sorting (shared by client rows and their project children) ───────────────
@@ -2475,14 +2489,14 @@ function _leadCmp_(key) {
 }
 function sortLeadClients_(clients) { return clients.slice().sort(_leadCmp_(state.leadSort)); }
 function sortLeadProjects_(projs)  { return projs.slice().sort(_leadCmp_(state.leadSort)); }
-function setLeadSort(v)      { state.leadSort = v; renderLeadSummary(); }
-function toggleLeadShowAll() { state.leadShowAll = !state.leadShowAll; renderLeadSummary(); }
+function setLeadSort(v)      { state.leadSort = v; renderLeadership(); }
+function toggleLeadShowAll() { state.leadShowAll = !state.leadShowAll; renderLeadership(); }
 
-function renderLeadSummary() {
-  const el = document.getElementById('panelLeadership');
-  const d  = state.leadership;
-  if (!d)      { el.innerHTML = '<div class="empty">No data.</div>'; return; }
-  if (d.error) { el.innerHTML = `<div class="empty">${esc(d.message || d.error)}</div>`; return; }
+// ── This Month view ──────────────────────────────────────────────────────────
+function buildLeadMonthHtml() {
+  const d = state.leadership;
+  if (!d)      return '<div class="loading"><div class="loading-spinner"></div></div>';
+  if (d.error) return `<div class="empty">${esc(d.message || d.error)}</div>`;
 
   const t = d.totals || {};
   const clients = sortLeadClients_(d.clients || []);
@@ -2515,7 +2529,6 @@ function renderLeadSummary() {
     <div class="lead-controls">
       <div><label>Sort</label><select onchange="setLeadSort(this.value)">${sortOpts}</select></div>
       <label class="chk"><input type="checkbox" ${state.leadShowAll ? 'checked' : ''} onchange="toggleLeadShowAll()"> Show all projects (not just leakage)</label>
-      <button class="lead-trend-btn" onclick="leadDrillClient('')">📈 Trend — all clients</button>
     </div>`;
 
   const rows = clients.map((c, i) => {
@@ -2526,7 +2539,7 @@ function renderLeadSummary() {
           p.life_billable_used != null ? ` · ${LEAD_H(p.life_billable_used)} h of ${LEAD_H(p.budget_hours)} lifetime` : ''}</span></td>
         <td class="num">${LEAD_MZ(p.revenue)}</td>
         <td class="num">${LEAD_H(p.billable_used)}</td>
-        <td class="num lead-billable">${p.rate ? '$' + p.rate.toFixed(2) : '<span class="lead-zero">—</span>'}</td>
+        <td class="num lead-billable">${LEAD_RATE(p.rate)}</td>
         <td class="num">${LEAD_RATE(p.effective_rate)}</td>
         <td class="num">${LEAD_MZ(p.written_off_value)}</td>
         <td class="num">${LEAD_MZ(p.unused_additional_value)}</td>
@@ -2558,11 +2571,11 @@ function renderLeadSummary() {
       <tbody>${rows}</tbody>
     </table></div>`;
 
-  el.innerHTML = `
+  return `
     ${tiles}
     <div class="card" style="padding:0">
       <div class="ph-section-head"><span class="ph-title">Revenue Leakage &amp; Effective Rate</span>
-        <span class="ph-meta">this month · click a client name for its trend</span></div>
+        <span class="ph-meta">this month · click a client name for its history</span></div>
       ${controls}
       <div class="lead-note">
         <b>Written off</b> — hours delivered past base + approved additional. The work is done and can't be billed; money out the door.
@@ -2584,44 +2597,55 @@ function toggleLeadClient(i) {
   if (caret) caret.textContent = open ? '▸' : '▾';
 }
 
-// ── Per-client drill-in: performance over time in its own space ──────────────
+// Click a client name in the This Month table → jump to its Client History.
 function leadDrillClient(clientId) {
-  const c = ((state.leadership && state.leadership.clients) || []).find(x => (x.client_id || '') === clientId);
   state.leadClient = clientId;
-  state.leadClientName = clientId ? (c ? c.client_name : '—') : 'All clients';
-  state.leadView = 'client';
-  state.leadHistory = null;   // fetch fresh for this client
-  renderLeadership();
-}
-function leadBackToSummary() {
-  state.leadView = 'summary';
+  state.leadView = 'history';
+  state.leadHistory = null;
   renderLeadership();
 }
 
-function renderLeadClientView() {
-  const el = document.getElementById('panelLeadership');
-  el.innerHTML = `
-    <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;flex-wrap:wrap">
-      <button class="lead-back" onclick="leadBackToSummary()">← All clients</button>
-      <span class="ph-title">${esc(state.leadClientName || '—')} · performance over time</span>
-    </div>
-    <div class="card" style="padding:0">
-      <div class="ch-controls" style="padding:14px 20px 0">
+// ── Client History view (mirrors Project Health's Client History) ────────────
+function renderLeadHistoryShell() {
+  return `
+    <div class="card">
+      <div class="ph-section-head"><span class="ph-title">Client History</span>
+        <span class="ph-meta">revenue vs written off, and the rate we actually realise</span></div>
+      <div class="ch-controls">
+        <div class="ctrl-group"><label>Client</label>
+          <select id="leadClientSel" onchange="onLeadTrendChange()"><option value="">Loading clients…</option></select></div>
         <div class="ctrl-group" style="max-width:180px"><label>Period</label>
           <select id="leadMonthsSel" onchange="onLeadTrendChange()">
             <option value="6">Last 6 months</option>
-            <option value="12">Last 12 months</option>
+            <option value="12" selected>Last 12 months</option>
           </select></div>
       </div>
       <div id="leadTrendArea" style="padding:8px 20px 20px"><div class="loading"><div class="loading-spinner"></div></div></div>
     </div>`;
-  const ms = document.getElementById('leadMonthsSel');
-  if (ms) ms.value = state.leadMonths || '12';
+}
+
+async function initLeadHistory() {
+  const sel = document.getElementById('leadClientSel');
+  if (!sel) return;
+  if (!state.clientList) {
+    try { state.clientList = (await api('getClientList')).clients || []; }
+    catch (e) { sel.innerHTML = '<option value="">Could not load clients</option>'; return; }
+  }
+  const opt = c => `<option value="${c.client_id}">${esc(c.client_name)}</option>`;
+  const active   = state.clientList.filter(c => c.is_active);
+  const inactive = state.clientList.filter(c => !c.is_active);
+  sel.innerHTML = '<option value="">All clients</option>'
+    + (active.length   ? `<optgroup label="● Active clients">${active.map(opt).join('')}</optgroup>` : '')
+    + (inactive.length ? `<optgroup label="○ Inactive clients">${inactive.map(opt).join('')}</optgroup>` : '');
+  sel.value = state.leadClient || '';
+  const ms = document.getElementById('leadMonthsSel'); if (ms) ms.value = state.leadMonths || '12';
   if (state.leadHistory) renderLeadTrend(); else onLeadTrendChange();
 }
 
 async function onLeadTrendChange() {
+  const cs = document.getElementById('leadClientSel');
   const ms = document.getElementById('leadMonthsSel');
+  if (cs) state.leadClient = cs.value;
   if (ms) state.leadMonths = ms.value;
   const area = document.getElementById('leadTrendArea');
   if (area) area.innerHTML = '<div class="loading"><div class="loading-spinner"></div></div>';
@@ -2635,7 +2659,7 @@ async function onLeadTrendChange() {
   renderLeadTrend();
 }
 
-// ── Per-project trend table sorting (clickable headers) ──────────────────────
+// ── Per-project history table sorting (clickable headers) ────────────────────
 function setLeadTrendSort(key) {
   const s = state.leadTrendSort;
   if (s.key === key) s.dir = -s.dir;
@@ -2675,14 +2699,18 @@ function renderLeadTrend() {
     const arrow = on ? (state.leadTrendSort.dir < 0 ? ' ▾' : ' ▴') : '';
     return `<th class="${cls || ''} lead-sortable" onclick="setLeadTrendSort('${key}')">${label}${arrow}</th>`;
   };
+  // Same columns as the This Month table so the two read consistently.
   const projTable = !P.length ? '' : `
     <div class="table-wrap" style="margin-top:16px"><table class="ph-table">
       <thead><tr>
         ${sortHdr('name', 'Project', '')}
         ${sortHdr('revenue', 'Revenue', 'num')}
         ${sortHdr('billable_h', 'Billable h', 'num')}
+        ${sortHdr('rate', 'Billable $/h', 'num')}
         ${sortHdr('effective_rate', 'Eff. $/h', 'num')}
         ${sortHdr('written_off_value', 'Written off', 'num')}
+        ${sortHdr('unused_additional_value', 'Approved unused', 'num')}
+        ${sortHdr('under_base_value', 'Under base', 'num')}
       </tr></thead>
       <tbody>${P.map(p => `
         <tr${p.written_off_value > 0 ? ' style="background:rgba(192,57,43,.05)"' : ''}>
@@ -2691,8 +2719,11 @@ function renderLeadTrend() {
             d.client_id ? '' : ' · ' + esc(p.client_name || '')}</span></td>
           <td class="num">${LEAD_M(p.revenue)}</td>
           <td class="num">${LEAD_H(p.billable_h)}</td>
+          <td class="num lead-billable">${LEAD_RATE(p.rate)}</td>
           <td class="num">${LEAD_RATE(p.effective_rate)}</td>
-          <td class="num">${p.written_off_value ? LEAD_M(p.written_off_value) : '<span class="lead-zero">—</span>'}</td>
+          <td class="num">${LEAD_MZ(p.written_off_value)}</td>
+          <td class="num">${LEAD_MZ(p.unused_additional_value)}</td>
+          <td class="num">${LEAD_MZ(p.under_base_value)}</td>
         </tr>`).join('')}</tbody>
     </table></div>`;
 
