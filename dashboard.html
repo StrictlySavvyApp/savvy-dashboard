@@ -344,7 +344,7 @@
   <h1><span class="brand-dot"></span>Strictly Savvy<span class="header-sub">Team Dashboard</span></h1>
   <div class="header-right">
     <div class="data-meta" id="dataMeta"></div>
-    <span class="build-badge" title="build 2026-06-26·ae">&#9432;</span>
+    <span class="build-badge" title="build 2026-06-26·aa">&#9432;</span>
     <span class="refresh-info" id="refreshInfo"></span>
     <button class="btn btn-secondary btn-sm" onclick="logout()" id="logoutBtn" style="display:none">
       Sign out
@@ -408,13 +408,6 @@
         </div>
       </div>
       <div id="currentUserBadge" style="font-size:13px; color:var(--text-muted);"></div>
-      <!-- Leadership only: view the dashboard scoped to another team member -->
-      <div id="viewAsWrap" style="display:none; align-items:center; gap:6px;">
-        <label for="viewAsSel" style="font-size:12px; color:var(--text-muted); font-weight:600;">View as</label>
-        <select id="viewAsSel" onchange="onViewAs()" style="font-size:12px; padding:4px 8px; border:1px solid var(--border); border-radius:8px; background:#fff;"></select>
-        <button id="viewAsReset" onclick="resetViewAs()" title="Back to my own view"
-          style="display:none; font-size:12px; font-weight:700; color:var(--brand); background:#fff; border:1px solid var(--border); border-radius:8px; padding:4px 8px; cursor:pointer;">↩ Me</button>
-      </div>
     </div>
   </div>
 
@@ -468,7 +461,6 @@ let state = {
   commissionData:  null,
   leadership:      null,   // Leadership tab: revenue leakage + effective rate
   isLeadership:    false,  // from getBootstrap; the API gate is the real control
-  me:              null,   // the signed-in person (auto-login), matched by Google email
   leadHistory:     null,   // Leadership trend: revenue/leakage over time
   leadClient:      '',     // '' = all clients
   leadMonths:      '12',
@@ -517,31 +509,14 @@ function ensureFreshToken() {
     setTimeout(function () {
       const i = _tokenWaiters.indexOf(resolve);
       if (i >= 0) { _tokenWaiters.splice(i, 1); reject(new Error('token refresh timed out')); }
-    }, 6000);   // was 3500 — a cold/slow GIS could miss it and drop to the gate
+    }, 3500);
   });
-}
-
-// Proactively re-mint the ID token BEFORE it expires (~hourly), off the critical
-// path, so a normal click never lands on an expired token and bounces to the gate.
-// Renewal is silent (auto_select re-selects the existing session); on failure we do
-// nothing and the next real call's reactive refresh + gate remain the fallback.
-let _proactiveTimer = null;
-function startProactiveTokenRefresh() {
-  if (_proactiveTimer) return;                 // once per session
-  _proactiveTimer = setInterval(function () {
-    if (!state.idToken) return;
-    ensureFreshToken().catch(function () {});  // best-effort; failures handled reactively
-  }, 50 * 60 * 1000);                          // 50 min < the ~60 min token lifetime
 }
 
 // Show the sign-in gate again — only when re-auth truly can't happen silently.
 function handleAuthError(data) {
   const gate = document.getElementById('signinGate');
   if (gate) gate.style.display = 'flex';
-  // Restore the sign-in button + prompt (onGoogleCredential hides/relabels them
-  // during the "Signing you in…" state) so a fresh manual sign-in is possible.
-  const g = document.getElementById('gbtn');     if (g) g.style.display = 'flex';
-  const msg = document.getElementById('signinMsg'); if (msg) msg.textContent = 'Sign in with your Google account to continue.';
   const err = document.getElementById('signinErr');
   if (err) err.textContent = (data && data.reason === 'denied')
     ? (data.message || 'This account is not on the access list.')
@@ -563,7 +538,6 @@ async function init() {
       const boot = await api('getBootstrap');
       userList = boot.users; monthsArr = boot.months || []; meta = boot.meta;
       state.isLeadership = !!boot.is_leadership;
-      state.me = boot.me || null;   // the signed-in person, matched server-side by Google email
     } catch (e) {
       const [ul, m, dm] = await Promise.all([api('getUserList'), api('getAvailableMonths'), api('getDataMeta')]);
       userList = ul; monthsArr = m.months || []; meta = dm;
@@ -590,70 +564,11 @@ async function init() {
       ? curMonth
       : (state.availableMonths[0] || curMonth);
 
-    // Auto-login: we already know who signed in (matched by Google email), so skip
-    // the "select your name" step and load them straight in. The picker on the
-    // landing screen stays populated as a fallback / manual switch (see logout).
-    if (state.me) {
-      await loadDashboard(state.me);           // hides the gate, shows the dashboard
-      const first = (state.me.name || '').split(' ')[0] || 'there';
-      flashToast(`Welcome, ${first}`);
-    } else {
-      // No auto-match (e.g. a legacy allowlist entry) — fall back to the picker.
-      revealLanding_();
-    }
-
   } catch (e) {
     document.getElementById('landingError').textContent =
       '⚠️ Could not connect to data source. Check the API_BASE URL is set correctly.';
     console.error(e);
-    revealLanding_();                          // so the error is actually visible
   }
-}
-
-// ── Leadership "View as" ─────────────────────────────────────────────────────
-function renderViewAs_() {
-  const wrap = document.getElementById('viewAsWrap');
-  if (!wrap) return;
-  if (!state.isLeadership) { wrap.style.display = 'none'; return; }   // real identity only
-  const sel = document.getElementById('viewAsSel');
-  const cur = (state.currentUser && state.currentUser.email) || '';
-  sel.innerHTML = (state.users || [])
-    .map(u => `<option value="${esc(u.email)}"${u.email === cur ? ' selected' : ''}>${esc(u.name)} · ${esc(u.team_label)}</option>`)
-    .join('');
-  wrap.style.display = 'flex';
-  // "Back to me" appears only while scoped to someone other than the signed-in user.
-  const meEmail = (state.me && state.me.email) || '';
-  document.getElementById('viewAsReset').style.display = (cur && cur !== meEmail) ? 'inline-block' : 'none';
-}
-
-async function onViewAs() {
-  const email = document.getElementById('viewAsSel').value;
-  const u = (state.me && email === state.me.email) ? state.me
-          : (state.users || []).find(x => x.email === email);
-  if (!u) return;
-  clearTabData_();                 // cached data belongs to the previous identity
-  await loadDashboard(u);
-}
-
-function resetViewAs() {
-  if (!state.me) return;
-  clearTabData_();
-  loadDashboard(state.me);
-}
-
-// Drop every tab's cached payload — used when the effective identity changes so a
-// stale, wrongly-scoped view isn't shown.
-function clearTabData_() {
-  state.projectHealth = null; state.teamUtil = null; state.clientBreakdown = null;
-  state.commissionData = null; state.leadership = null; state.leadHistory = null;
-  state.clientList = null;
-}
-
-// Show the name-picker landing and drop the sign-in gate (used only when we can't
-// auto-login the signed-in user).
-function revealLanding_() {
-  document.getElementById('signinGate').style.display = 'none';
-  document.getElementById('landing').classList.remove('hidden');
 }
 
 function renderDataMeta(meta) {
@@ -671,22 +586,12 @@ function onUserSelect() {
   document.getElementById('goBtn').disabled = !email;
 }
 
-async function loadDashboard(userObj) {
-  // userObj passed → auto-login (or leadership "view as"); otherwise read the picker.
-  // A passed user may be inactive (e.g. Jo) and absent from the active list, so we
-  // trust the object directly rather than looking it up.
-  let user = userObj && userObj.email ? userObj : null;
-  if (!user) {
-    const email = document.getElementById('userSelect').value;
-    if (!email) return;
-    user = state.users.find(u => u.email === email);
-  }
-  if (!user) return;
-  state.currentUser = user;
+async function loadDashboard() {
+  const email = document.getElementById('userSelect').value;
+  if (!email) return;
 
-  // Auto-login calls this while the sign-in gate is still up — drop it now.
-  document.getElementById('signinGate').style.display = 'none';
-  document.getElementById('landing').classList.add('hidden');
+  state.currentUser = state.users.find(u => u.email === email);
+  if (!state.currentUser) return;
 
   // Default the Project Health focus: leadership team → all team members;
   // everyone else → focused on themselves.
@@ -707,11 +612,6 @@ async function loadDashboard(userObj) {
   // Set current user badge
   document.getElementById('currentUserBadge').textContent =
     `👤 ${state.currentUser.name} · ${state.currentUser.team_label}`;
-
-  // Leadership "View as": scope the whole view to any member. Visibility keys on
-  // the REAL signed-in identity (state.isLeadership), never on currentUser, so
-  // scoping to a non-leader can't hide the control and strand them.
-  renderViewAs_();
 
   // Build month selector
   buildMonthSelector();
@@ -2627,7 +2527,7 @@ function logout() {
             leadership: null, isLeadership: state.isLeadership,
             leadHistory: null, leadClient: '', leadMonths: '12',
             tuChartInstances: [],   // was dropped entirely — later chart pushes threw
-            me: state.me, idToken: state.idToken, lastRefresh: state.lastRefresh };
+            idToken: state.idToken, lastRefresh: state.lastRefresh };
   document.getElementById('dashboard').classList.add('hidden');
   document.getElementById('landing').classList.remove('hidden');
   document.getElementById('logoutBtn').style.display = 'none';
@@ -2693,12 +2593,6 @@ document.addEventListener('visibilitychange', function () {
   if (document.visibilityState === 'visible') checkFreshness();
 });
 window.addEventListener('focus', checkFreshness);
-// Also poll on a timer so a tab left frontmost overnight still pulls in the morning
-// refresh — focus/visibility events never fire if you simply walk back to it. The
-// 30s debounce in checkFreshness keeps this cheap; getDataMeta is a tiny call.
-setInterval(function () {
-  if (document.visibilityState === 'visible') checkFreshness();
-}, 10 * 60 * 1000);
 
 function flashToast(msg) {
   let el = document.getElementById('freshToast');
@@ -2728,18 +2622,13 @@ function onGoogleCredential(resp) {
   const firstTime = !state.idToken;          // distinguish first sign-in from a silent refresh
   state.idToken = resp.credential;           // verified server-side on every call
   document.getElementById('signinErr').textContent = '';
-  // Reveal the app immediately. The landing (name picker) is visible by default,
-  // so the page is usable even if auto-login can't identify the user — DO NOT gate
-  // this behind onGoogleCredential firing, because One Tap/FedCM can fail silently
-  // and then nothing would ever reveal the page (this caused a total load failure).
   document.getElementById('signinGate').style.display = 'none';
   // Wake any in-flight requests waiting on a fresh token (silent re-auth).
   const waiters = _tokenWaiters; _tokenWaiters = [];
   waiters.forEach(function (r) { try { r(resp.credential); } catch (e) {} });
   // Only bootstrap on the FIRST sign-in — a mid-session token refresh must NOT
   // re-run init() (that would bounce the user back to the landing screen).
-  // init() will auto-load the identified user (state.me), replacing the landing.
-  if (firstTime) { init(); startProactiveTokenRefresh(); }
+  if (firstTime) init();
 }
 
 // Called when the Google Identity Services library has loaded (see script tag below).
@@ -2752,10 +2641,7 @@ function onGisLoaded() {
   google.accounts.id.initialize({
     client_id: GOOGLE_CLIENT_ID,
     callback: onGoogleCredential,
-    auto_select: true,               // silently re-signs in a returning, still-valid user
-    // NOTE: use_fedcm_for_prompt was tried here to harden silent renewal, but it
-    // rejected with a FedCM NetworkError and hung sign-in — removed. The classic
-    // One Tap flow is the working path; the proactive 50-min refresh still reduces bumps.
+    auto_select: true,           // silently re-signs in a returning, still-valid user
   });
   google.accounts.id.renderButton(document.getElementById('gbtn'),
     { theme: 'filled_blue', size: 'large', text: 'signin_with', shape: 'pill' });
