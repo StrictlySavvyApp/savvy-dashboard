@@ -189,6 +189,16 @@
                      margin-bottom: 12px; }
   @keyframes spin { to { transform: rotate(360deg); } }
   .empty { text-align: center; padding: 32px; color: var(--text-muted); font-size: 14px; }
+  /* Leadership "view as" — the name badge itself becomes a compact dropdown */
+  .badge-select { font: inherit; color: var(--text-muted); background: transparent;
+    border: none; border-bottom: 1px dashed var(--border); padding: 0 16px 0 2px; margin: 0;
+    cursor: pointer; max-width: 200px; text-overflow: ellipsis;
+    -webkit-appearance: none; appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%23999' fill='none' stroke-width='1.5'/></svg>");
+    background-repeat: no-repeat; background-position: right 2px center; }
+  .badge-select:hover { color: var(--ink); }
+  .badge-viewing { font-size: 10px; font-weight: 800; color: #fff; background: var(--brand);
+    padding: 1px 6px; border-radius: 6px; text-transform: uppercase; letter-spacing: .3px; }
   /* Leadership tab */
   .lead-note { padding: 12px 20px 16px; font-size: 12.5px; color: var(--text-muted); line-height: 1.6; }
   .lead-note b { color: var(--ink); font-weight: 600; }
@@ -344,7 +354,7 @@
   <h1><span class="brand-dot"></span>Strictly Savvy<span class="header-sub">Team Dashboard</span></h1>
   <div class="header-right">
     <div class="data-meta" id="dataMeta"></div>
-    <span class="build-badge" title="build 2026-06-26·af">&#9432;</span>
+    <span class="build-badge" title="build 2026-06-26·ag">&#9432;</span>
     <span class="refresh-info" id="refreshInfo"></span>
     <button class="btn btn-secondary btn-sm" onclick="logout()" id="logoutBtn" style="display:none">
       Sign out
@@ -407,14 +417,9 @@
           <a id="admLinkUsers" href="#" target="_blank" rel="noopener" style="display:block; padding:10px 14px; font-size:13px; font-weight:600; color:var(--text); text-decoration:none; border-top:1px solid var(--border);">👥 User Access</a>
         </div>
       </div>
-      <div id="currentUserBadge" style="font-size:13px; color:var(--text-muted);"></div>
-      <!-- Leadership only: view the dashboard scoped to another team member -->
-      <div id="viewAsWrap" style="display:none; align-items:center; gap:6px;">
-        <label for="viewAsSel" style="font-size:12px; color:var(--text-muted); font-weight:600;">View as</label>
-        <select id="viewAsSel" onchange="onViewAs()" style="font-size:12px; padding:4px 8px; border:1px solid var(--border); border-radius:8px; background:#fff;"></select>
-        <button id="viewAsReset" onclick="resetViewAs()" title="Back to my own view"
-          style="display:none; font-size:12px; font-weight:700; color:var(--brand); background:#fff; border:1px solid var(--border); border-radius:8px; padding:4px 8px; cursor:pointer;">↩ Me</button>
-      </div>
+      <!-- Name badge. For leadership this becomes a compact "view as" dropdown
+           (see renderUserBadge_), so there's no separate wide control. -->
+      <div id="currentUserBadge" style="font-size:13px; color:var(--text-muted); display:flex; align-items:center; gap:8px;"></div>
     </div>
   </div>
 
@@ -509,6 +514,7 @@ async function _apiCall(action, extra) {
 // Resolves when onGoogleCredential fires with a new token; rejects after a short wait
 // (means the Google session is truly gone → the gate is the correct fallback).
 let _tokenWaiters = [];
+let _signinFallback = null;   // safety timer: reveal the picker if boot ever stalls
 function ensureFreshToken() {
   return new Promise((resolve, reject) => {
     if (!(window.google && google.accounts && google.accounts.id)) { reject(new Error('GIS not loaded')); return; }
@@ -611,34 +617,42 @@ async function init() {
 }
 
 // ── Leadership "View as" ─────────────────────────────────────────────────────
-function renderViewAs_() {
-  const wrap = document.getElementById('viewAsWrap');
-  if (!wrap) return;
-  if (!state.isLeadership) { wrap.style.display = 'none'; return; }   // real identity only
-  const sel = document.getElementById('viewAsSel');
-  const cur = (state.currentUser && state.currentUser.email) || '';
-  sel.innerHTML = (state.users || [])
-    .map(u => `<option value="${esc(u.email)}"${u.email === cur ? ' selected' : ''}>${esc(u.name)} · ${esc(u.team_label)}</option>`)
-    .join('');
-  wrap.style.display = 'flex';
-  // "Back to me" appears only while scoped to someone other than the signed-in user.
-  const meEmail = (state.me && state.me.email) || '';
-  document.getElementById('viewAsReset').style.display = (cur && cur !== meEmail) ? 'inline-block' : 'none';
+// The name badge. For leadership it IS the "view as" control — a compact inline
+// dropdown, so there's no separate wide control widening the header. Keys on the
+// REAL signed-in identity (state.isLeadership), never on currentUser, so scoping
+// to a non-leader can't turn the control off and strand you. Selecting your own
+// name returns you to yourself (no separate "back" button needed).
+function renderUserBadge_() {
+  const badge = document.getElementById('currentUserBadge');
+  if (!badge) return;
+  const cur = state.currentUser;
+  if (!state.isLeadership) {
+    badge.textContent = `👤 ${cur.name} · ${cur.team_label}`;
+    return;
+  }
+  const list = (state.users || []).slice();
+  // Ensure the signed-in user is always selectable, even if inactive (e.g. Jo).
+  if (state.me && !list.some(u => u.email === state.me.email)) list.unshift(state.me);
+  const curEmail = (cur && cur.email) || '';
+  const opts = list.map(u =>
+    `<option value="${esc(u.email)}"${u.email === curEmail ? ' selected' : ''}>${esc(u.name)} · ${esc(u.team_label)}</option>`
+  ).join('');
+  const viewingOther = state.me && curEmail && curEmail !== state.me.email;
+  badge.innerHTML =
+    `<span>👤</span><select id="viewAsSel" class="badge-select" title="View the dashboard as another team member" onchange="onViewAs()">${opts}</select>`
+    + (viewingOther ? `<span class="badge-viewing">viewing as</span>` : '');
 }
 
 async function onViewAs() {
-  const email = document.getElementById('viewAsSel').value;
+  const sel = document.getElementById('viewAsSel');
+  if (!sel) return;
+  const email = sel.value;
+  if (email === ((state.currentUser && state.currentUser.email) || '')) return;   // already them
   const u = (state.me && email === state.me.email) ? state.me
           : (state.users || []).find(x => x.email === email);
   if (!u) return;
   clearTabData_();                 // cached data belongs to the previous identity
   await loadDashboard(u);
-}
-
-function resetViewAs() {
-  if (!state.me) return;
-  clearTabData_();
-  loadDashboard(state.me);
 }
 
 // Drop every tab's cached payload — used when the effective identity changes so a
@@ -652,8 +666,13 @@ function clearTabData_() {
 // Show the name-picker landing and drop the sign-in gate (used only when we can't
 // auto-login the signed-in user).
 function revealLanding_() {
+  if (_signinFallback) { clearTimeout(_signinFallback); _signinFallback = null; }
   document.getElementById('signinGate').style.display = 'none';
   document.getElementById('landing').classList.remove('hidden');
+  // Restore the gate's button/message (the "Signing you in…" mask hid/relabelled
+  // them) so a later re-auth shows a usable sign-in screen.
+  const g = document.getElementById('gbtn'); if (g) g.style.display = 'flex';
+  const msg = document.getElementById('signinMsg'); if (msg) msg.textContent = 'Sign in with your Google account to continue.';
 }
 
 function renderDataMeta(meta) {
@@ -684,7 +703,9 @@ async function loadDashboard(userObj) {
   if (!user) return;
   state.currentUser = user;
 
-  // Auto-login calls this while the sign-in gate is still up — drop it now.
+  // Auto-login calls this while the "Signing you in…" gate mask is still up — the
+  // dashboard is ready, so drop the mask and cancel the safety timer.
+  if (_signinFallback) { clearTimeout(_signinFallback); _signinFallback = null; }
   document.getElementById('signinGate').style.display = 'none';
   document.getElementById('landing').classList.add('hidden');
 
@@ -704,14 +725,8 @@ async function loadDashboard(userObj) {
   document.getElementById('dashboard').classList.remove('hidden');
   document.getElementById('logoutBtn').style.display = 'block';
 
-  // Set current user badge
-  document.getElementById('currentUserBadge').textContent =
-    `👤 ${state.currentUser.name} · ${state.currentUser.team_label}`;
-
-  // Leadership "View as": scope the whole view to any member. Visibility keys on
-  // the REAL signed-in identity (state.isLeadership), never on currentUser, so
-  // scoping to a non-leader can't hide the control and strand them.
-  renderViewAs_();
+  // Name badge (doubles as the leadership "view as" dropdown).
+  renderUserBadge_();
 
   // Build month selector
   buildMonthSelector();
@@ -2728,18 +2743,24 @@ function onGoogleCredential(resp) {
   const firstTime = !state.idToken;          // distinguish first sign-in from a silent refresh
   state.idToken = resp.credential;           // verified server-side on every call
   document.getElementById('signinErr').textContent = '';
-  // Reveal the app immediately. The landing (name picker) is visible by default,
-  // so the page is usable even if auto-login can't identify the user — DO NOT gate
-  // this behind onGoogleCredential firing, because One Tap/FedCM can fail silently
-  // and then nothing would ever reveal the page (this caused a total load failure).
-  document.getElementById('signinGate').style.display = 'none';
   // Wake any in-flight requests waiting on a fresh token (silent re-auth).
   const waiters = _tokenWaiters; _tokenWaiters = [];
   waiters.forEach(function (r) { try { r(resp.credential); } catch (e) {} });
   // Only bootstrap on the FIRST sign-in — a mid-session token refresh must NOT
-  // re-run init() (that would bounce the user back to the landing screen).
-  // init() will auto-load the identified user (state.me), replacing the landing.
-  if (firstTime) { init(); startProactiveTokenRefresh(); }
+  // re-run init() (that would bounce the user back to the landing screen), and
+  // must leave the (already-hidden) gate alone.
+  if (firstTime) {
+    // Keep the branded gate up as a "Signing you in…" mask so the name picker
+    // never flashes before auto-login lands. init() then either shows the
+    // dashboard (auto-identified) or reveals the picker (no match).
+    const msg = document.getElementById('signinMsg'); if (msg) msg.textContent = 'Signing you in…';
+    const g = document.getElementById('gbtn');        if (g)   g.style.display = 'none';
+    // Safety net: if boot ever stalls, drop the mask and show the picker so the
+    // user can never be stranded on "Signing you in…" (landing is visible-by-default).
+    _signinFallback = setTimeout(revealLanding_, 10000);
+    init();
+    startProactiveTokenRefresh();
+  }
 }
 
 // Called when the Google Identity Services library has loaded (see script tag below).
