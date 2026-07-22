@@ -344,7 +344,7 @@
   <h1><span class="brand-dot"></span>Strictly Savvy<span class="header-sub">Team Dashboard</span></h1>
   <div class="header-right">
     <div class="data-meta" id="dataMeta"></div>
-    <span class="build-badge" title="build 2026-06-26·aa">&#9432;</span>
+    <span class="build-badge" title="build 2026-06-26·ab">&#9432;</span>
     <span class="refresh-info" id="refreshInfo"></span>
     <button class="btn btn-secondary btn-sm" onclick="logout()" id="logoutBtn" style="display:none">
       Sign out
@@ -461,6 +461,7 @@ let state = {
   commissionData:  null,
   leadership:      null,   // Leadership tab: revenue leakage + effective rate
   isLeadership:    false,  // from getBootstrap; the API gate is the real control
+  me:              null,   // the signed-in person (auto-login), matched by Google email
   leadHistory:     null,   // Leadership trend: revenue/leakage over time
   leadClient:      '',     // '' = all clients
   leadMonths:      '12',
@@ -509,8 +510,21 @@ function ensureFreshToken() {
     setTimeout(function () {
       const i = _tokenWaiters.indexOf(resolve);
       if (i >= 0) { _tokenWaiters.splice(i, 1); reject(new Error('token refresh timed out')); }
-    }, 3500);
+    }, 6000);   // was 3500 — a cold/slow GIS could miss it and drop to the gate
   });
+}
+
+// Proactively re-mint the ID token BEFORE it expires (~hourly), off the critical
+// path, so a normal click never lands on an expired token and bounces to the gate.
+// Renewal is silent (auto_select re-selects the existing session); on failure we do
+// nothing and the next real call's reactive refresh + gate remain the fallback.
+let _proactiveTimer = null;
+function startProactiveTokenRefresh() {
+  if (_proactiveTimer) return;                 // once per session
+  _proactiveTimer = setInterval(function () {
+    if (!state.idToken) return;
+    ensureFreshToken().catch(function () {});  // best-effort; failures handled reactively
+  }, 50 * 60 * 1000);                          // 50 min < the ~60 min token lifetime
 }
 
 // Show the sign-in gate again — only when re-auth truly can't happen silently.
@@ -538,6 +552,7 @@ async function init() {
       const boot = await api('getBootstrap');
       userList = boot.users; monthsArr = boot.months || []; meta = boot.meta;
       state.isLeadership = !!boot.is_leadership;
+      state.me = boot.me || null;   // the signed-in person, matched server-side by Google email
     } catch (e) {
       const [ul, m, dm] = await Promise.all([api('getUserList'), api('getAvailableMonths'), api('getDataMeta')]);
       userList = ul; monthsArr = m.months || []; meta = dm;
@@ -564,6 +579,15 @@ async function init() {
       ? curMonth
       : (state.availableMonths[0] || curMonth);
 
+    // Auto-login: we already know who signed in (matched by Google email), so skip
+    // the "select your name" step and load them straight in. The picker on the
+    // landing screen stays populated as a fallback / manual switch (see logout).
+    if (state.me) {
+      await loadDashboard(state.me);
+      const first = (state.me.name || '').split(' ')[0] || 'there';
+      flashToast(`Welcome, ${first}`);
+    }
+
   } catch (e) {
     document.getElementById('landingError').textContent =
       '⚠️ Could not connect to data source. Check the API_BASE URL is set correctly.';
@@ -586,12 +610,18 @@ function onUserSelect() {
   document.getElementById('goBtn').disabled = !email;
 }
 
-async function loadDashboard() {
-  const email = document.getElementById('userSelect').value;
-  if (!email) return;
-
-  state.currentUser = state.users.find(u => u.email === email);
-  if (!state.currentUser) return;
+async function loadDashboard(userObj) {
+  // userObj passed → auto-login (or leadership "view as"); otherwise read the picker.
+  // A passed user may be inactive (e.g. Jo) and absent from the active list, so we
+  // trust the object directly rather than looking it up.
+  let user = userObj && userObj.email ? userObj : null;
+  if (!user) {
+    const email = document.getElementById('userSelect').value;
+    if (!email) return;
+    user = state.users.find(u => u.email === email);
+  }
+  if (!user) return;
+  state.currentUser = user;
 
   // Default the Project Health focus: leadership team → all team members;
   // everyone else → focused on themselves.
@@ -2527,7 +2557,7 @@ function logout() {
             leadership: null, isLeadership: state.isLeadership,
             leadHistory: null, leadClient: '', leadMonths: '12',
             tuChartInstances: [],   // was dropped entirely — later chart pushes threw
-            idToken: state.idToken, lastRefresh: state.lastRefresh };
+            me: state.me, idToken: state.idToken, lastRefresh: state.lastRefresh };
   document.getElementById('dashboard').classList.add('hidden');
   document.getElementById('landing').classList.remove('hidden');
   document.getElementById('logoutBtn').style.display = 'none';
@@ -2593,6 +2623,12 @@ document.addEventListener('visibilitychange', function () {
   if (document.visibilityState === 'visible') checkFreshness();
 });
 window.addEventListener('focus', checkFreshness);
+// Also poll on a timer so a tab left frontmost overnight still pulls in the morning
+// refresh — focus/visibility events never fire if you simply walk back to it. The
+// 30s debounce in checkFreshness keeps this cheap; getDataMeta is a tiny call.
+setInterval(function () {
+  if (document.visibilityState === 'visible') checkFreshness();
+}, 10 * 60 * 1000);
 
 function flashToast(msg) {
   let el = document.getElementById('freshToast');
@@ -2628,7 +2664,7 @@ function onGoogleCredential(resp) {
   waiters.forEach(function (r) { try { r(resp.credential); } catch (e) {} });
   // Only bootstrap on the FIRST sign-in — a mid-session token refresh must NOT
   // re-run init() (that would bounce the user back to the landing screen).
-  if (firstTime) init();
+  if (firstTime) { init(); startProactiveTokenRefresh(); }
 }
 
 // Called when the Google Identity Services library has loaded (see script tag below).
@@ -2641,7 +2677,10 @@ function onGisLoaded() {
   google.accounts.id.initialize({
     client_id: GOOGLE_CLIENT_ID,
     callback: onGoogleCredential,
-    auto_select: true,           // silently re-signs in a returning, still-valid user
+    auto_select: true,               // silently re-signs in a returning, still-valid user
+    use_fedcm_for_prompt: true,      // supported silent-renewal path in modern Chrome
+                                     // (One Tap alone became unreliable as 3p-cookies
+                                     // were deprecated — a big cause of hourly bumps)
   });
   google.accounts.id.renderButton(document.getElementById('gbtn'),
     { theme: 'filled_blue', size: 'large', text: 'signin_with', shape: 'pill' });
