@@ -368,7 +368,7 @@
   <h1><span class="brand-dot"></span>Strictly Savvy<span class="header-sub">Team Dashboard</span></h1>
   <div class="header-right">
     <div class="data-meta" id="dataMeta"></div>
-    <span class="build-badge" title="build 2026-06-26·aj">&#9432;</span>
+    <span class="build-badge" title="build 2026-06-26·ak">&#9432;</span>
     <span class="refresh-info" id="refreshInfo"></span>
     <button class="btn btn-secondary btn-sm" onclick="logout()" id="logoutBtn" style="display:none">
       Sign out
@@ -1009,11 +1009,21 @@ function stripPrefix(name) {
   const i = s.indexOf(' / ');
   return i >= 0 ? s.slice(i + 3) : s;
 }
-const fmt1 = (v) => (v === 0 || v) ? (+v).toFixed(1) : '–';
-const dashMuted = (v) => v ? (+v).toFixed(1) : '<span class="text-muted">–</span>';
+const fmt1 = (v) => (v === 0 || v) ? (+v).toFixed(2) : '–';
+const dashMuted = (v) => v ? (+v).toFixed(2) : '<span class="text-muted">–</span>';
 
-let phSort = 'pct';   // client sort: 'pct' (% used desc) or 'name'
+let phSort = 'pct';   // client sort: 'pct' (% used desc), 'pace', or 'name'
 function setPhSort(v) { phSort = v; renderProjectHealth(); }
+let _phElapsedFactor = 1;   // month-elapsed fraction (for client-level pace); set in buildPhMonthView
+
+// Pace cell: usage vs budget-expected-by-now. 100 = on track; colours warm as it
+// runs ahead so a project trending over budget stands out before it actually does.
+function paceCellHtml(pace) {
+  if (pace == null) return '<td class="num"><span class="text-muted">–</span></td>';
+  const col = pace >= 100 ? '#C0392B' : pace >= 90 ? '#E8853A' : 'var(--text-muted)';
+  const w   = pace >= 100 ? 700 : pace >= 90 ? 600 : 400;
+  return `<td class="num" style="color:${col};font-weight:${w}" title="Hours used vs budget expected by this point in the month (100% = on track)">${pace}%</td>`;
+}
 
 let phView = 'month';        // 'month' (per-month view) or 'history' (client history)
 let phHistSelected = '';     // remembered client_id for the history view
@@ -1088,7 +1098,7 @@ function chartBaseOptions_(yTitle, rotation, tickFont) {
           ci.isDatasetVisible(item.datasetIndex) ? ci.hide(item.datasetIndex) : ci.show(item.datasetIndex);
         },
       },
-      tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${(+c.parsed.y).toFixed(1)}h` } },
+      tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${(+c.parsed.y).toFixed(2)}h` } },
     },
   };
 }
@@ -1162,6 +1172,7 @@ function renderProjectHealth() {
 
 function buildPhMonthView() {
   const rows = state.projectHealth.rows.slice();   // already scoped server-side to the selected member
+  _phElapsedFactor = state.projectHealth.elapsed_factor || 1;
 
   const total        = rows.length;
   const clientCount  = new Set(rows.map(r => r.client_name || '—')).size;
@@ -1224,12 +1235,12 @@ function buildPhMonthView() {
   const kpis = `
     <div class="kpi-row">
       <div class="kpi brand"><div class="kpi-label">Clients / Projects</div><div class="kpi-value">${clientCount} / ${total}</div><div class="kpi-sub">${state.selectedMonth ? formatMonth(state.selectedMonth) : ''}</div></div>
-      <div class="kpi"><div class="kpi-label">Total Budget</div><div class="kpi-value">${totalBudget.toFixed(1)}</div><div class="kpi-sub">base ${baseBudget.toFixed(1)}<br>+ additional ${addBudget.toFixed(1)}</div></div>
-      <div class="kpi"><div class="kpi-label">Billable Used</div><div class="kpi-value">${billableUsed.toFixed(1)}</div><div class="kpi-sub">${budgetPct == null ? 'hours vs budget' : budgetPct + '% of budget'}<br>excl. Flexi</div></div>
-      <div class="kpi"><div class="kpi-label">Flexi / Other Hours</div><div class="kpi-value">${flexiHours.toFixed(1)}</div><div class="kpi-sub">billable · outside budget</div></div>
+      <div class="kpi"><div class="kpi-label">Total Budget</div><div class="kpi-value">${totalBudget.toFixed(2)}</div><div class="kpi-sub">base ${baseBudget.toFixed(2)}<br>+ additional ${addBudget.toFixed(2)}</div></div>
+      <div class="kpi"><div class="kpi-label">Billable Used</div><div class="kpi-value">${billableUsed.toFixed(2)}</div><div class="kpi-sub">${budgetPct == null ? 'hours vs budget' : budgetPct + '% of budget'}<br>excl. Flexi</div></div>
+      <div class="kpi"><div class="kpi-label">Flexi / Other Hours</div><div class="kpi-value">${flexiHours.toFixed(2)}</div><div class="kpi-sub">billable · outside budget</div></div>
       <div class="kpi ${overClients > 0 ? 'danger' : overCount > 0 ? 'warning' : 'success'}"><div class="kpi-label">Over Budget · clients / projects</div><div class="kpi-value">${overClients} / ${overCount}</div><div class="kpi-sub">client = total over budget<br>excludes Flexi</div></div>
-      <div class="kpi warning"><div class="kpi-label">Non-Billable</div><div class="kpi-value">${nonBillable.toFixed(1)}</div><div class="kpi-sub">${memberFocused ? "member's own hours" : 'tracked, not billed'}</div></div>
-      <div class="kpi"><div class="kpi-label">Automation Setup</div><div class="kpi-value">${internalAuto.toFixed(1)}</div><div class="kpi-sub">${memberFocused ? "member's own build time" : 'build time invested'}</div></div>
+      <div class="kpi warning"><div class="kpi-label">Non-Billable</div><div class="kpi-value">${nonBillable.toFixed(2)}</div><div class="kpi-sub">${memberFocused ? "member's own hours" : 'tracked, not billed'}</div></div>
+      <div class="kpi"><div class="kpi-label">Automation Setup</div><div class="kpi-value">${internalAuto.toFixed(2)}</div><div class="kpi-sub">${memberFocused ? "member's own build time" : 'build time invested'}</div></div>
       <div class="kpi brand"><div class="kpi-label">Monthly Revenue</div><div class="kpi-value">$${Math.round(revenue).toLocaleString()}</div><div class="kpi-sub">${memberFocused ? 'generated by member<br>(recoverable)' : 'fees (capped) + flexi'}</div></div>
     </div>`;
 
@@ -1237,6 +1248,7 @@ function buildPhMonthView() {
     <div class="ph-toolbar">
       <span class="ph-toolbar-label">Sort clients by</span>
       <button class="ph-sort ${phSort === 'pct' ? 'active' : ''}" onclick="setPhSort('pct')">% Used</button>
+      <button class="ph-sort ${phSort === 'pace' ? 'active' : ''}" onclick="setPhSort('pace')">Pace</button>
       <button class="ph-sort ${phSort === 'name' ? 'active' : ''}" onclick="setPhSort('name')">Name</button>
       <span class="ph-hint">click a client row to expand its projects</span>
     </div>`;
@@ -1278,18 +1290,30 @@ function buildProjectSection(s, rows, charts) {
   const groups = {};
   rows.forEach(r => { const c = r.client_name || '—'; (groups[c] = groups[c] || []).push(r); });
 
+  // Client-level pace (monthly sections only): aggregate used vs aggregate budget
+  // expected by now. Cumulative sections have no monthly pace → null.
+  const clientPace = agg => (!s.cumulative && agg.allowed > 0 && _phElapsedFactor > 0)
+    ? Math.round((agg.used / (agg.allowed * _phElapsedFactor)) * 100) : null;
+
   const clients = Object.keys(groups).map(cn => ({ cn, agg: aggregateClient_(groups[cn]), rows: groups[cn] }));
   clients.sort((a, b) => {
     if (phSort === 'name') return a.cn.localeCompare(b.cn);
+    if (phSort === 'pace' && !s.cumulative) {
+      const pa = clientPace(a.agg), pb = clientPace(b.agg);
+      return (pb == null ? -1 : pb) - (pa == null ? -1 : pa);
+    }
     const pa = a.agg.pct == null ? -1 : a.agg.pct;   // no-budget clients sink to bottom
     const pb = b.agg.pct == null ? -1 : b.agg.pct;
     return pb - pa;
   });
 
   const body = clients.map(({ cn, agg, rows: cr }) => {
-    const projRows = cr.sort((a, b) => (b.pct_used || 0) - (a.pct_used || 0)).map(r => buildProjectRow(r, s)).join('');
+    const projRows = cr.sort((a, b) => (phSort === 'pace' && !s.cumulative)
+        ? ((b.pace_pct || 0) - (a.pace_pct || 0))
+        : ((b.pct_used || 0) - (a.pct_used || 0)))
+      .map(r => buildProjectRow(r, s)).join('');
     const overProj = cr.filter(r => r.is_over_budget).length;
-    return buildClientSummaryRow_(cn, agg, cr.length, overProj) + projRows;
+    return buildClientSummaryRow_(cn, agg, cr.length, overProj, !s.cumulative, clientPace(agg)) + projRows;
   }).join('');
 
   // Stacked budget-vs-usage chart(s) — one per ≤12 clients so many-client sections
@@ -1334,7 +1358,7 @@ function buildProjectSection(s, rows, charts) {
             <th class="num">NZ</th><th class="num">Global</th><th class="num">AutoMate</th>
             <th class="num">Non-Bill</th><th class="num">Auto Setup</th><th class="num">Internal</th>
             <th class="num">Used</th><th class="num">Remain</th>
-            <th>% Used</th><th>Status</th>
+            <th>% Used</th>${s.cumulative ? '' : '<th title="Usage vs budget expected by this point in the month">Pace</th>'}<th>Status</th>
           </tr></thead>
           <tbody>${body}</tbody>
         </table>
@@ -1342,7 +1366,7 @@ function buildProjectSection(s, rows, charts) {
     </div>`;
 }
 
-function buildClientSummaryRow_(cn, a, nProjects, overProjects) {
+function buildClientSummaryRow_(cn, a, nProjects, overProjects, showPace, pacePct) {
   const hasBudget = a.allowed > 0;
   const noteTitle = (a.notes && a.notes.length) ? a.notes.map(n => `${n.p}: ${n.note}`).join('\n') : '';
   const noteIco   = noteTitle ? ` <span class="note-ico" title="${esc(noteTitle)}">🗒️</span>` : '';
@@ -1360,7 +1384,7 @@ function buildClientSummaryRow_(cn, a, nProjects, overProjects) {
     <td class="ph-proj"><span class="arrow">▸</span> <span class="client-name">${esc(cn)}</span><span class="client-sub">${nProjects} project${nProjects > 1 ? 's' : ''}</span></td>
     <td></td>
     <td class="num">${fmt1(a.base)}</td>
-    <td class="num">${a.additional ? '+' + a.additional.toFixed(1) : '<span class="text-muted">–</span>'}${noteIco}</td>
+    <td class="num">${a.additional ? '+' + a.additional.toFixed(2) : '<span class="text-muted">–</span>'}${noteIco}</td>
     <td class="num"><b>${fmt1(a.allowed)}</b></td>
     <td class="num">${dashMuted(a.nz)}</td>
     <td class="num">${dashMuted(a.global)}</td>
@@ -1369,8 +1393,9 @@ function buildClientSummaryRow_(cn, a, nProjects, overProjects) {
     <td class="num col-internal">${dashMuted(a.internal)}</td>
     <td class="num col-internal">${dashMuted(a.internalTransition)}</td>
     <td class="num font-mono"><b>${fmt1(a.used)}</b></td>
-    <td class="num">${a.remaining == null ? '–' : a.remaining.toFixed(1)}</td>
+    <td class="num">${a.remaining == null ? '–' : a.remaining.toFixed(2)}</td>
     <td><div class="prog-wrap"><div class="prog-bar"><div class="prog-fill ${cls === 'none' ? 'ok' : cls}" style="width:${Math.min(a.pct || 0, 100)}%"></div></div><span class="prog-pct">${hasBudget ? a.pct + '%' : '–'}</span></div></td>
+    ${showPace ? paceCellHtml(pacePct) : ''}
     <td class="status-cell"><span class="badge ${badge}">${label}</span>${projFlag}<button class="ch-jump" title="Open this client's 12-month history" onclick="event.stopPropagation(); jumpToClientHistory(this.closest('tr').dataset.client)">↗</button></td>
   </tr>`;
 }
@@ -1395,7 +1420,7 @@ function buildProjectRow(r, s) {
     <td class="ph-proj">${esc(stripPrefix(r.project_name)) || '–'}${nameTag}${startLine}</td>
     <td class="text-muted text-sm">${(r.owner_email || '').split('@')[0] || '–'}</td>
     <td class="num">${isInternalRow ? muted : fmt1(r.budget_hours)}</td>
-    <td class="num">${r.additional_hours ? '+' + (+r.additional_hours).toFixed(1) : muted}${r.additional_note ? ` <span class="note-ico" title="${esc(r.additional_note)}">🗒️</span>` : ''}</td>
+    <td class="num">${r.additional_hours ? '+' + (+r.additional_hours).toFixed(2) : muted}${r.additional_note ? ` <span class="note-ico" title="${esc(r.additional_note)}">🗒️</span>` : ''}</td>
     <td class="num">${isInternalRow ? muted : '<b>' + fmt1(r.total_allowed) + '</b>'}</td>
     <td class="num">${dashMuted(r.nz_hours)}</td>
     <td class="num">${dashMuted(r.global_hours)}</td>
@@ -1404,8 +1429,9 @@ function buildProjectRow(r, s) {
     <td class="num col-internal">${dashMuted(r.internal_auto_hours)}</td>
     <td class="num col-internal">${dashMuted(r.internal_transition_hours)}</td>
     <td class="num font-mono">${isInternalRow ? muted : '<b>' + fmt1(billableUsed) + '</b>'}</td>
-    <td class="num">${r.remaining_hours == null ? '–' : (+r.remaining_hours).toFixed(1)}</td>
+    <td class="num">${r.remaining_hours == null ? '–' : (+r.remaining_hours).toFixed(2)}</td>
     <td>${isInternalRow ? muted : `<div class="prog-wrap"><div class="prog-bar"><div class="prog-fill ${cls === 'none' ? 'ok' : cls}" style="width:${Math.min(pct || 0, 100)}%"></div></div><span class="prog-pct">${hasBudget ? pct + '%' : '–'}</span></div>`}</td>
+    ${s.cumulative ? '' : paceCellHtml(isInternalRow ? null : r.pace_pct)}
     <td><span class="badge ${badge}">${label}</span></td>
   </tr>`;
 }
@@ -1749,7 +1775,7 @@ function makeTuChartConfig(kind, labels, items) {
         legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
         tooltip: { callbacks: { label: (c) => c.dataset.type === 'line'
           ? `${c.dataset.label}: ${c.parsed.y == null ? '–' : Math.round(c.parsed.y) + '%'}`
-          : `${c.dataset.label}: ${(+c.parsed.y).toFixed(1)}h` } },
+          : `${c.dataset.label}: ${(+c.parsed.y).toFixed(2)}h` } },
       },
     },
   };
@@ -2063,7 +2089,7 @@ function renderClientBreakdown() {
     <div class="kpi-row">
       <div class="kpi">
         <div class="kpi-label">Total Hours</div>
-        <div class="kpi-value">${totalHours.toFixed(1)}</div>
+        <div class="kpi-value">${totalHours.toFixed(2)}</div>
         <div class="kpi-sub">this month</div>
       </div>
       <div class="kpi">
@@ -2096,7 +2122,7 @@ function renderClientBreakdown() {
           <div class="accordion-header" id="acc_h_${ci}" onclick="toggleAccordion(${ci})">
             <div style="display:flex; align-items:center; gap:12px;">
               <strong>${c.client_name}</strong>
-              <span class="badge badge-none">${c.total_hours.toFixed(1)}h</span>
+              <span class="badge badge-none">${c.total_hours.toFixed(2)}h</span>
               <span class="text-sm text-muted">${c.projects.length} project${c.projects.length!==1?'s':''}</span>
               ${c.projects.some(p=>p.is_over_budget) ? '<span class="badge badge-over">Over budget</span>' : ''}
             </div>
@@ -2200,7 +2226,7 @@ function drawClientAttentionList(clients) {
       <div style="display:flex; align-items:center; gap:10px; padding:8px 4px; border-bottom:1px solid var(--border);">
         <div style="flex:1; min-width:0;">
           <div style="font-weight:500; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${c.client_name}</div>
-          <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${c.total_hours.toFixed(1)}h · ${c.projects.length} project${c.projects.length!==1?'s':''}</div>
+          <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${c.total_hours.toFixed(2)}h · ${c.projects.length} project${c.projects.length!==1?'s':''}</div>
         </div>
         <div style="width:80px; flex-shrink:0;">
           ${pct !== null ? `
@@ -2363,10 +2389,10 @@ function renderCommissionLeadership(panel) {
   }).join('');
   const totalRow = `<tr class="grand-total">
       <td><strong>Grand total</strong></td><td></td><td></td>
-      <td class="num"><b>${tBill.toFixed(1)}</b></td>
+      <td class="num"><b>${tBill.toFixed(2)}</b></td>
       <td class="num"><b>${gPP.toFixed(1)}%</b></td>
-      <td class="num"><b>${tDel.toFixed(1)}</b></td>
-      <td class="num"><b>${tAuto.toFixed(1)}</b></td>
+      <td class="num"><b>${tDel.toFixed(2)}</b></td>
+      <td class="num"><b>${tAuto.toFixed(2)}</b></td>
       <td class="num"><b>${gTP.toFixed(1)}%</b></td>
       <td class="num font-mono"><b>$${tComm.toFixed(2)}</b></td>
     </tr>`;
@@ -2449,7 +2475,7 @@ async function submitPin() {
 let leadChart = null;
 
 const LEAD_M    = n => '$' + Math.round(n || 0).toLocaleString();
-const LEAD_H    = n => (n || 0).toFixed(1);
+const LEAD_H    = n => (n || 0).toFixed(2);
 const LEAD_MZ   = n => (n ? LEAD_M(n) : '<span class="lead-zero">—</span>');
 const LEAD_RATE = n => (n ? '$' + Number(n).toFixed(2) : '<span class="lead-zero">—</span>');
 
